@@ -1,12 +1,19 @@
 ---
-gsd_state_version: '1.0'  # placeholder; syncStateFrontmatter overwrites on first state.* call
-status: planning
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+current_phase: 01
+current_phase_name: scaffold-config-procedural-assets
+status: executing
+stopped_at: Completed 01-01-PLAN.md
+last_updated: "2026-07-23T12:14:21.123Z"
+last_activity: 2026-07-23
+last_activity_desc: Phase 01 execution started
 progress:
-  total_phases: 6
+  total_phases: 1
   completed_phases: 0
-  total_plans: 17
-  completed_plans: 0
-  percent: 0
+  total_plans: 2
+  completed_plans: 1
 ---
 
 # Project State
@@ -16,20 +23,21 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-23)
 
 **Core value:** You can open it in a browser and immediately play a fun, recognizably-Doom first-person shooter — move, fight, shoot, manage health/ammo, and win or die.
-**Current focus:** Phase 1 — Scaffold, Config & Procedural Assets
+**Current focus:** Phase 01 — scaffold-config-procedural-assets
 
 ## Current Position
 
-Phase: 1 of 6 (Scaffold, Config & Procedural Assets)
-Plan: 0 of 2 in current phase
-Status: Ready to plan
-Last activity: 2026-07-23 — Roadmap created (6 phases, 47/47 requirements mapped)
+Phase: 01 (scaffold-config-procedural-assets) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-07-23 — Phase 01 execution started
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
 **Velocity:**
+
 - Total plans completed: 0
 - Average duration: — min
 - Total execution time: 0.0 hours
@@ -41,10 +49,16 @@ Progress: [░░░░░░░░░░] 0%
 | - | - | - | - |
 
 **Recent Trend:**
+
 - Last 5 plans: —
 - Trend: —
 
 *Updated after each plan completion*
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 01 P01 | 4min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -56,6 +70,8 @@ Recent decisions affecting current work:
 - [Roadmap]: Raycasting engine (not BSP) with procedural assets + synthesized audio; classic non-module scripts for `file://` support.
 - [Roadmap]: Two contracts locked early — one-time Uint32 framebuffer (Phase 1) and clamped delta-time (Phase 2) — because retrofitting either is a rewrite.
 - [Roadmap]: Highest-risk math (wall raycasting, sprite projection) front-loaded into Phases 3-4 with fallbacks defined.
+- [Phase ?]: Framebuffer contract: buf32 Uint32Array aliases ImageData.data; clear()/present() single putImageData; INTERNAL_W=480, height aspect-derived clamped 240-300
+- [Phase ?]: Classic-script load order config->framebuffer->[assets]->main is load-bearing; per-column Float32Array zBuffer and #hud display-res overlay established for Phases 3/4/6
 
 ### Pending Todos
 
@@ -80,6 +96,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-23
-Stopped at: ROADMAP.md and STATE.md written; REQUIREMENTS.md traceability updated
+Last session: 2026-07-23T12:14:08.213Z
+Stopped at: Completed 01-01-PLAN.md
 Resume file: None

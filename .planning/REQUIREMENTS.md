@@ -10,8 +10,8 @@ All code lives under `Doom/Claude Opus 4.8/GSD/`.
 
 ### Platform
 
-- [ ] **PLAT-01**: Game runs in a current desktop browser with no build step and no npm install
-- [ ] **PLAT-02**: Game loads and plays from `file://` (double-click `index.html`) as well as from a static server
+- [x] **PLAT-01**: Game runs in a current desktop browser with no build step and no npm install
+- [x] **PLAT-02**: Game loads and plays from `file://` (double-click `index.html`) as well as from a static server
 - [ ] **PLAT-03**: Game is fully self-contained — no network requests, no external textures, sprites, fonts, or audio files
 - [ ] **PLAT-04**: Game loop uses `requestAnimationFrame` with a clamped delta-time so motion is frame-rate independent and survives tab refocus
 
@@ -21,7 +21,7 @@ All code lives under `Doom/Claude Opus 4.8/GSD/`.
 - [ ] **REND-02**: Walls are textured, with the correct texture column sampled per screen column
 - [ ] **REND-03**: Floors and ceilings are cast and shaded (textured, with a flat-color fallback path if needed)
 - [ ] **REND-04**: Distance-based shading/fog darkens surfaces with depth for atmosphere
-- [ ] **REND-05**: The world renders into a fixed low-resolution Uint32 framebuffer that is CSS-upscaled with pixelated scaling for the retro look and real-time performance
+- [x] **REND-05**: The world renders into a fixed low-resolution Uint32 framebuffer that is CSS-upscaled with pixelated scaling for the retro look and real-time performance
 - [ ] **REND-06**: A per-column depth (z) buffer is produced by the wall pass for later sprite occlusion
 
 ### Controls
@@ -119,10 +119,10 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PLAT-01 | Phase 1 | Pending |
-| PLAT-02 | Phase 1 | Pending |
+| PLAT-01 | Phase 1 | Complete |
+| PLAT-02 | Phase 1 | Complete |
 | PLAT-03 | Phase 1 | Pending |
-| REND-05 | Phase 1 | Pending |
+| REND-05 | Phase 1 | Complete |
 | PLAT-04 | Phase 2 | Pending |
 | CTRL-01 | Phase 2 | Pending |
 | CTRL-02 | Phase 2 | Pending |
@@ -168,6 +168,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | LVL-06 | Phase 6 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 47 total (prior "41" footer was a miscount; corrected during roadmap creation)
 - Mapped to phases: 47 ✓
 - Unmapped: 0 ✓
