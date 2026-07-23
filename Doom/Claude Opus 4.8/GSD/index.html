@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>DOOM Clone</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Two-canvas composite: #game is the internal-resolution 3D framebuffer
+       (CSS-upscaled, pixelated); #hud is a transparent display-resolution
+       overlay for later HUD/crosshair/text. -->
+  <canvas id="game"></canvas>
+  <canvas id="hud"></canvas>
+
+  <!--
+    CLASSIC-SCRIPT LOAD-ORDER CONTRACT (load-bearing — do not reorder):
+      1. js/config.js      — defines CONFIG + packRGBA/mulberry32 globals
+      2. js/framebuffer.js — defines Framebuffer (needs CONFIG)
+      3. js/main.js        — entry point (needs CONFIG + Framebuffer)
+    Order encodes the dependency graph: later files extend earlier globals.
+    Classic <script src> only — no ES modules (they break on file://), no
+    bundler, no runtime network loads. Every asset is co-located and relative.
+  -->
+  <script src="js/config.js"></script>
+  <script src="js/framebuffer.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

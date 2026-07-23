@@ -1,0 +1,27 @@
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #000;
+  overflow: hidden;
+}
+
+/* Both canvases fill the viewport and are stacked absolutely. */
+#game, #hud {
+  position: absolute;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+}
+
+/* #game backing store = fixed internal resolution; the GPU compositor does the
+   nearest-neighbor upscale for free. `crisp-edges` is a Safari-era fallback. */
+#game {
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
+}
+
+/* #hud is a transparent display-resolution overlay; it must never eat input. */
+#hud {
+  pointer-events: none;
+}
