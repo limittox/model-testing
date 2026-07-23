@@ -119,13 +119,59 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (populated by roadmapper) | | |
+| PLAT-01 | Phase 1 | Pending |
+| PLAT-02 | Phase 1 | Pending |
+| PLAT-03 | Phase 1 | Pending |
+| REND-05 | Phase 1 | Pending |
+| PLAT-04 | Phase 2 | Pending |
+| CTRL-01 | Phase 2 | Pending |
+| CTRL-02 | Phase 2 | Pending |
+| CTRL-03 | Phase 2 | Pending |
+| CTRL-04 | Phase 2 | Pending |
+| LVL-01 | Phase 2 | Pending |
+| REND-01 | Phase 3 | Pending |
+| REND-02 | Phase 3 | Pending |
+| REND-03 | Phase 3 | Pending |
+| REND-04 | Phase 3 | Pending |
+| REND-06 | Phase 3 | Pending |
+| ENT-01 | Phase 4 | Pending |
+| ENT-02 | Phase 4 | Pending |
+| ENT-03 | Phase 4 | Pending |
+| ENEM-01 | Phase 5 | Pending |
+| ENEM-02 | Phase 5 | Pending |
+| ENEM-03 | Phase 5 | Pending |
+| ENEM-04 | Phase 5 | Pending |
+| ENEM-05 | Phase 5 | Pending |
+| WEAP-01 | Phase 5 | Pending |
+| WEAP-02 | Phase 5 | Pending |
+| WEAP-03 | Phase 5 | Pending |
+| WEAP-04 | Phase 5 | Pending |
+| WEAP-05 | Phase 5 | Pending |
+| PICK-01 | Phase 5 | Pending |
+| PICK-02 | Phase 5 | Pending |
+| PICK-03 | Phase 5 | Pending |
+| PICK-04 | Phase 5 | Pending |
+| PICK-05 | Phase 5 | Pending |
+| LVL-02 | Phase 5 | Pending |
+| HUD-01 | Phase 6 | Pending |
+| HUD-02 | Phase 6 | Pending |
+| HUD-03 | Phase 6 | Pending |
+| HUD-04 | Phase 6 | Pending |
+| HUD-05 | Phase 6 | Pending |
+| HUD-06 | Phase 6 | Pending |
+| AUD-01 | Phase 6 | Pending |
+| AUD-02 | Phase 6 | Pending |
+| AUD-03 | Phase 6 | Pending |
+| LVL-03 | Phase 6 | Pending |
+| LVL-04 | Phase 6 | Pending |
+| LVL-05 | Phase 6 | Pending |
+| LVL-06 | Phase 6 | Pending |
 
 **Coverage:**
-- v1 requirements: 41 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 41 ⚠️
+- v1 requirements: 47 total (prior "41" footer was a miscount; corrected during roadmap creation)
+- Mapped to phases: 47 ✓
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-07-23*
-*Last updated: 2026-07-23 after initial definition*
+*Last updated: 2026-07-23 after roadmap creation (traceability populated, count corrected 41 → 47)*
