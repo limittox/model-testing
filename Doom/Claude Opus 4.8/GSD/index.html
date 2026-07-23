@@ -14,13 +14,30 @@
   <canvas id="hud"></canvas>
 
   <!--
+    ============================================================================
+    THE PHASE 1 CONTRACTS (canonical note — every later phase stands on these)
+    ============================================================================
+
+    TWO-CANVAS COMPOSITE:
+      #game — internal-resolution framebuffer, CSS-upscaled with pixelated
+              scaling; the raycaster (Phase 3) writes here via one putImageData.
+      #hud  — transparent, DISPLAY-resolution overlay with pointer-events:none;
+              Phase 6 draws crisp HUD/crosshair/text here.
+      Both fill the viewport and are stacked absolutely.
+
     CLASSIC-SCRIPT LOAD-ORDER CONTRACT (load-bearing — do not reorder):
-      1. js/config.js      — defines CONFIG + packRGBA/mulberry32 globals
-      2. js/framebuffer.js — defines Framebuffer (needs CONFIG)
-      3. js/main.js        — entry point (needs CONFIG + Framebuffer)
-    Order encodes the dependency graph: later files extend earlier globals.
-    Classic <script src> only — no ES modules (they break on file://), no
-    bundler, no runtime network loads. Every asset is co-located and relative.
+      1. js/config.js       — defines CONFIG + packRGBA/mulberry32 globals
+      2. js/framebuffer.js  — defines Framebuffer (needs CONFIG)
+      3. (Plan 02 assets)   — texture/sprite generators (need CONFIG); insert
+                              BEFORE main.js so main can preview them
+      4. js/main.js         — entry point (needs CONFIG + Framebuffer + assets)
+      Order encodes the dependency graph: later files extend earlier globals.
+
+    SELF-CONTAINMENT:
+      Classic <script src> only — no ES modules (they break on file://), no
+      bundler, no runtime network loads, no external CDNs/fonts/images. Every
+      asset is co-located and referenced by a relative path so the game runs
+      identically from file:// and a static server, fully offline.
   -->
   <script src="js/config.js"></script>
   <script src="js/framebuffer.js"></script>

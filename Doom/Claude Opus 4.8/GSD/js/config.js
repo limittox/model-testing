@@ -54,5 +54,9 @@ var CONFIG = {
 
   // --- Colors (packed via packRGBA to exercise the packed-color contract) ---
   // A distinct dark, non-black slate so a successful clear is unambiguous.
-  CLEAR_COLOR: packRGBA(24, 26, 34)
+  CLEAR_COLOR: packRGBA(24, 26, 34),
+  // Flat-fill fallbacks for the floor/ceiling pass before textured casting
+  // lands (Phase 3): ceiling a dim blue-grey, floor a warmer brown-grey.
+  CEIL_COLOR: packRGBA(48, 52, 66),
+  FLOOR_COLOR: packRGBA(58, 50, 42)
 };
