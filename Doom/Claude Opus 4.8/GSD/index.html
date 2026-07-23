@@ -28,10 +28,23 @@
     CLASSIC-SCRIPT LOAD-ORDER CONTRACT (load-bearing — do not reorder):
       1. js/config.js       — defines CONFIG + packRGBA/mulberry32 globals
       2. js/framebuffer.js  — defines Framebuffer (needs CONFIG)
-      3. (Plan 02 assets)   — texture/sprite generators (need CONFIG); insert
-                              BEFORE main.js so main can preview them
-      4. js/main.js         — entry point (needs CONFIG + Framebuffer + assets)
+      3. js/textures.js     — defines Textures (needs CONFIG/packRGBA/mulberry32)
+      4. js/sprites.js      — defines Sprites (needs CONFIG/packRGBA/mulberry32)
+      5. js/preview.js      — defines Preview (needs Framebuffer + Textures +
+                              Sprites); the load-time generated-art atlas
+      6. js/main.js         — entry point (needs CONFIG + Framebuffer + assets)
+      i.e. config -> framebuffer -> textures -> sprites -> preview -> main.
       Order encodes the dependency graph: later files extend earlier globals.
+
+    ASSET-BUFFER CONTRACT (Plan 02 — consumed by Phases 3 and 4):
+      Every texture/sprite is a flat
+        { width, height, data: Uint8ClampedArray, buf32: Uint32Array }
+      with buf32 aliasing data.buffer, so texels share the framebuffer's packed
+      little-endian format and copy with a plain assignment. Wall/floor/ceiling
+      textures are 64x64 (power of two — mask coords with `& 63`). Sprites carry
+      per-pixel alpha and use a COLOR KEY: a texel is transparent when
+      ((packed >>> 24) & 0xff) < 128. All art is generated in code from
+      mulberry32(CONFIG.SEED + salt), so it is identical on every load.
 
     SELF-CONTAINMENT:
       Classic <script src> only — no ES modules (they break on file://), no
@@ -41,6 +54,9 @@
   -->
   <script src="js/config.js"></script>
   <script src="js/framebuffer.js"></script>
+  <script src="js/textures.js"></script>
+  <script src="js/sprites.js"></script>
+  <script src="js/preview.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>

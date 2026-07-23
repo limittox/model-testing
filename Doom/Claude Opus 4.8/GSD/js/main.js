@@ -1,10 +1,12 @@
 /*
  * main.js — entry point.
  *
- * LOAD ORDER: loaded LAST (needs CONFIG and Framebuffer). On window load it
- * boots the framebuffer and paints the clear color. Phase 1 has NO animation
- * loop, so the color must be explicitly repainted after any resize that
- * reallocates the buffer.
+ * LOAD ORDER: loaded LAST (needs CONFIG, Framebuffer, Textures, Sprites and
+ * Preview). On window load it boots the framebuffer, generates ALL art in code
+ * (nothing is fetched from disk or the network), and paints the preview atlas.
+ *
+ * Phase 1 has NO animation loop, so the atlas must be explicitly repainted
+ * after any resize that reallocates the framebuffer.
  */
 
 window.addEventListener('load', function () {
@@ -12,12 +14,16 @@ window.addEventListener('load', function () {
   var hud = document.getElementById('hud');
 
   Framebuffer.init(game, hud);
-  Framebuffer.clear(CONFIG.CLEAR_COLOR);
-  Framebuffer.present();
+
+  // Generate every texture and sprite procedurally, once, at load.
+  Textures.build();
+  Sprites.build();
+
+  // Blit the generated art into the framebuffer and present it.
+  Preview.render();
 
   window.addEventListener('resize', function () {
     Framebuffer.resize();
-    Framebuffer.clear(CONFIG.CLEAR_COLOR);
-    Framebuffer.present();
+    Preview.render();
   });
 });
