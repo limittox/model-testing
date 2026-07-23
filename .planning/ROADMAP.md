@@ -30,11 +30,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   1. Double-clicking `Doom/Claude Opus 4.8/GSD/index.html` opens the game in a current desktop browser with no build step, no npm install, and no console or network errors (works from `file://` and a static server).
   2. All wall/floor textures and enemy/weapon/pickup sprites are generated in code at load time — nothing is fetched from disk or the network.
   3. The fixed low-resolution Uint32 framebuffer blits to the canvas and is crisply upscaled with pixelated scaling, shown by a visible load-time preview of the generated textures.
-**Plans**: 2 plans (estimated)
+**Plans**: 2 plans
 
 Plans:
-- [ ] 01-01: `index.html` + `config.js` (internal W/H, FOV, tile size) + canvas, one-time Uint32 framebuffer + CSS `image-rendering: pixelated` upscale; classic-script load-order contract locked
-- [ ] 01-02: Procedural texture + sprite generation into flat `Uint32Array`s with a load-time preview blit
+- [ ] 01-01-PLAN.md — Game shell tracer: `index.html` + `config.js` + two-canvas composite + one-time Uint32 framebuffer/present() + per-column z-buffer + CSS `image-rendering: pixelated` upscale; classic-script load-order contract locked
+- [ ] 01-02-PLAN.md — Procedural wall/floor/ceiling textures + enemy/pickup/weapon sprites into flat `{width,height,data,buf32}` buffers (seeded PRNG) with a load-time preview atlas blit
 
 ### Phase 2: Level, Player Movement & Input
 **Goal**: The player can move, strafe, run, and look around a hand-designed level with correct wall collision, validated on a top-down view before any 3D exists.
