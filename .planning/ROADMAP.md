@@ -34,12 +34,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. All wall/floor textures and enemy/weapon/pickup sprites are generated in code at load time — nothing is fetched from disk or the network.
   3. The fixed low-resolution Uint32 framebuffer blits to the canvas and is crisply upscaled with pixelated scaling, shown by a visible load-time preview of the generated textures.
 
-**Plans**: 1/2 plans executed
+**Plans**: 2/2 plans executed
 
 Plans:
 
 - [x] 01-01-PLAN.md — Game shell tracer: `index.html` + `config.js` + two-canvas composite + one-time Uint32 framebuffer/present() + per-column z-buffer + CSS `image-rendering: pixelated` upscale; classic-script load-order contract locked
-- [ ] 01-02-PLAN.md — Procedural wall/floor/ceiling textures + enemy/pickup/weapon sprites into flat `{width,height,data,buf32}` buffers (seeded PRNG) with a load-time preview atlas blit
+- [x] 01-02-PLAN.md — Procedural wall/floor/ceiling textures + enemy/pickup/weapon sprites into flat `{width,height,data,buf32}` buffers (seeded PRNG) with a load-time preview atlas blit
 
 ### Phase 2: Level, Player Movement & Input
 
@@ -154,7 +154,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Scaffold, Config & Procedural Assets | 1/2 | In Progress|  |
+| 1. Scaffold, Config & Procedural Assets | 2/2 | In Progress|  |
 | 2. Level, Player Movement & Input | 0/3 | Not started | - |
 | 3. Core Renderer — Walls, Floors & Ceilings | 0/3 | Not started | - |
 | 4. Sprite Rendering & Entities | 0/2 | Not started | - |

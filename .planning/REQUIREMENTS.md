@@ -12,7 +12,7 @@ All code lives under `Doom/Claude Opus 4.8/GSD/`.
 
 - [x] **PLAT-01**: Game runs in a current desktop browser with no build step and no npm install
 - [x] **PLAT-02**: Game loads and plays from `file://` (double-click `index.html`) as well as from a static server
-- [ ] **PLAT-03**: Game is fully self-contained — no network requests, no external textures, sprites, fonts, or audio files
+- [x] **PLAT-03**: Game is fully self-contained — no network requests, no external textures, sprites, fonts, or audio files
 - [ ] **PLAT-04**: Game loop uses `requestAnimationFrame` with a clamped delta-time so motion is frame-rate independent and survives tab refocus
 
 ### Rendering
@@ -121,7 +121,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 |-------------|-------|--------|
 | PLAT-01 | Phase 1 | Complete |
 | PLAT-02 | Phase 1 | Complete |
-| PLAT-03 | Phase 1 | Pending |
+| PLAT-03 | Phase 1 | Complete |
 | REND-05 | Phase 1 | Complete |
 | PLAT-04 | Phase 2 | Pending |
 | CTRL-01 | Phase 2 | Pending |
