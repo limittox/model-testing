@@ -4,16 +4,16 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 02
 current_phase_name: level-player-movement-input
-status: executing
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-07-24T05:08:51.333Z"
+status: verifying
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-07-24T05:26:57.919Z"
 last_activity: 2026-07-24
 last_activity_desc: Phase 02 execution started
 progress:
   total_phases: 2
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 5
-  completed_plans: 4
+  completed_plans: 5
 ---
 
 # Project State
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-07-23)
 
 Phase: 02 (level-player-movement-input) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-24 — Phase 02 execution started
 
-Progress: [████████░░] 80%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -62,6 +62,7 @@ Progress: [████████░░] 80%
 | Phase 01 P02 | 9min | 4 tasks | 5 files |
 | Phase 02 P01 | 12min | 3 tasks | 4 files |
 | Phase 02 P02 | 12min | 3 tasks | 6 files |
+| Phase 02 P03 | 16min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -85,6 +86,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 02-02: Vector camera pose — plane derived from dir via FOV_PLANE in one place (setDir); rotate() applies one matrix to both vectors; orthonormal to 1e-6 after 1000 turns
 - [Phase ?]: 02-02: Per-axis collision commits X before Y; Y tested against post-X x — produces wall slide, no corner-cut; derived maxStepPerFrame()=0.27 keeps no-tunneling honest
 - [Phase ?]: 02-02: dt=min(raw,DT_MAX 0.05); resync frame skips only step, still renders+presents; single present in Game.render(); Game.input/Game.view seams for Plan 03 and Phase 3
+- [Phase ?]: Input is intent-only: handlers hold a physical event.code set + a drain-on-read mouse delta, never mutating the player; readIntent samples once per frame
+- [Phase ?]: Arrow-key turn is independent of pointer-lock state (CTRL-03 fallback); mouse deltas accumulate only while the canvas holds lock, checked at event time, and each event is magnitude-clamped to MOUSE_MAX_DX
+- [Phase ?]: The top-down view writes buf32 and never presents; Phase 3 swaps in the raycaster by flipping TopDown.ENABLED and re-pointing Game.view alone
 
 ### Pending Todos
 
@@ -109,6 +113,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-24T05:08:38.618Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-07-24T05:26:43.352Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None

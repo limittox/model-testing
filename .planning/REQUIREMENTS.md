@@ -27,8 +27,8 @@ All code lives under `Doom/Claude Opus 4.8/GSD/`.
 ### Controls
 
 - [x] **CTRL-01**: Player moves forward/back and strafes left/right (WASD) with a run modifier
-- [ ] **CTRL-02**: Player turns via mouse-look using the Pointer Lock API
-- [ ] **CTRL-03**: Player can also turn with the keyboard (arrow keys) as a fallback when pointer lock is unavailable
+- [x] **CTRL-02**: Player turns via mouse-look using the Pointer Lock API
+- [x] **CTRL-03**: Player can also turn with the keyboard (arrow keys) as a fallback when pointer lock is unavailable
 - [x] **CTRL-04**: Player collides with walls and cannot pass through geometry (no tunneling at high speed)
 
 ### Entities
@@ -125,8 +125,8 @@ Which phases cover which requirements. Populated during roadmap creation.
 | REND-05 | Phase 1 | Complete |
 | PLAT-04 | Phase 2 | Complete |
 | CTRL-01 | Phase 2 | Complete |
-| CTRL-02 | Phase 2 | Pending |
-| CTRL-03 | Phase 2 | Pending |
+| CTRL-02 | Phase 2 | Complete |
+| CTRL-03 | Phase 2 | Complete |
 | CTRL-04 | Phase 2 | Complete |
 | LVL-01 | Phase 2 | Complete |
 | REND-01 | Phase 3 | Pending |
