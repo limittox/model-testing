@@ -152,6 +152,30 @@ var Raycaster = {
           buf[ceilRowBase + xf] = applyShade(cBuf[ti], rowShade);
         }
       }
+    } else {
+      // REAL distance-shaded flat-colour fallback (CONFIG.FLOOR_CAST === false) —
+      // RESEARCH Pattern 4, CONTEXT decision 5. This ships if the row-caster ever
+      // underperforms. It calls the SAME shadeFactor(rowDistance, false) as the
+      // textured path, so floor/ceiling still DARKEN with distance IDENTICALLY;
+      // only the base colour differs (a flat CONFIG colour instead of a sampled
+      // texel). A real, harness-exercised code path — not dead code, not a flat
+      // unshaded slab. Same y-range/mirror as the cast, so coverage (even AND odd
+      // H, horizon row included) is identical.
+      var floorBase = CONFIG.FLOOR_COLOR >>> 0;
+      var ceilBase = CONFIG.CEIL_COLOR >>> 0;
+      for (y = horizon; y < H; y++) {
+        var pf = y - horizon;
+        if (pf < 1) pf = 1;                               // horizon row: no /0, no CLEAR seam
+        var rowDistF = (CONFIG.CAMERA_Z * H) / pf;        // same distance the cast uses
+        var rowShadeF = shadeFactor(rowDistF, false);     // ONCE per row (REND-04)
+        var floorC = applyShade(floorBase, rowShadeF);
+        var ceilC = applyShade(ceilBase, rowShadeF);
+        var fRow = y * W, cRow = (H - 1 - y) * W;
+        for (var xg = 0; xg < W; xg++) {
+          buf[fRow + xg] = floorC;
+          buf[cRow + xg] = ceilC;
+        }
+      }
     }
 
     // ---- PASS B: per-column DDA wall cast (overwrites wall spans) -------------

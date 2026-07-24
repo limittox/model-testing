@@ -753,4 +753,110 @@ function expectedFloorRow(W, H, x, loopY) {
   }
 })();
 
+// ===========================================================================
+// 13. REND-03 — REAL DISTANCE-SHADED FLAT-COLOUR FALLBACK (CONFIG.FLOOR_CAST
+//     false). Flip the flag, render, and assert: the whole frame is still covered;
+//     a floor pixel === applyShade(CONFIG.FLOOR_COLOR, rowShade) and a ceiling pixel
+//     === applyShade(CONFIG.CEIL_COLOR, rowShade) (shaded, NOT a raw flat slab); and
+//     rows darken monotonically toward the horizon exactly as the textured path
+//     does. Restores FLOOR_CAST = true so the flag does not leak into other checks.
+// ===========================================================================
+(function () {
+  const W = Framebuffer.width, H = Framebuffer.height;
+  const horizon = H >> 1;
+  const SENTINEL = 0x0BADF00D >>> 0;
+
+  const o = Level.LANDMARKS.openCell;
+  Player.x = o.x; Player.y = o.y;
+  Player.setDir(1, 0);
+
+  // A column whose farthest-wall stripe frees the top/bottom rows (as in §11).
+  Raycaster.render();                    // FLOOR_CAST still true here — populate zBuffer
+  let col = 0, maxZ = -Infinity;
+  for (let x = 0; x < W; x++) { const z = Framebuffer.zBuffer[x]; if (z > maxZ) { maxZ = z; col = x; } }
+  const wsp = expectedWallPixel(W, H, col, horizon);
+  assert(wsp.clampedStart >= 1 && wsp.clampedEnd <= H - 1,
+    '13a. REND-03 fallback: the farthest-wall column frees the top/bottom rows (span [' +
+    wsp.clampedStart + ',' + wsp.clampedEnd + '])');
+
+  // Flip to the flat-colour fallback and render.
+  CONFIG.FLOOR_CAST = false;
+  Framebuffer.buf32.fill(SENTINEL);
+  Raycaster.render();
+
+  let leftover = 0;
+  for (let i = 0; i < Framebuffer.buf32.length; i++) {
+    if ((Framebuffer.buf32[i] >>> 0) === SENTINEL) leftover++;
+  }
+  assert(leftover === 0,
+    '13b. REND-03 fallback: FLOOR_CAST=false still fills every pixel, horizon row included (' + leftover + ' left)');
+
+  // Independently recompute the expected flat, distance-shaded colours for the
+  // bottom floor row (loopY = H-1) and its ceiling mirror (screen row 0).
+  let pF = (H - 1) - horizon; if (pF < 1) pF = 1;
+  const rowDistFb = (CONFIG.CAMERA_Z * H) / pF;
+  const rowShadeFb = Raycaster.shadeFactor(rowDistFb, false);
+  const expFloorFlat = Raycaster.applyShade(CONFIG.FLOOR_COLOR >>> 0, rowShadeFb) >>> 0;
+  const expCeilFlat = Raycaster.applyShade(CONFIG.CEIL_COLOR >>> 0, rowShadeFb) >>> 0;
+  const flatFloorPix = Framebuffer.buf32[(H - 1) * W + col] >>> 0;
+  const flatCeilPix = Framebuffer.buf32[0 * W + col] >>> 0;
+  assert(flatFloorPix === expFloorFlat,
+    '13c. REND-03 fallback: a floor pixel === applyShade(CONFIG.FLOOR_COLOR, rowShade) — shaded, not a raw slab');
+  assert(flatCeilPix === expCeilFlat,
+    '13d. REND-03 fallback: a ceiling pixel === applyShade(CONFIG.CEIL_COLOR, rowShade)');
+  assert(expFloorFlat !== (CONFIG.FLOOR_COLOR >>> 0) && expCeilFlat !== (CONFIG.CEIL_COLOR >>> 0),
+    '13e. REND-03 fallback: the shaded flat colours differ from the raw CONFIG colours (distance shading IS applied)');
+
+  // Monotonic darkening toward the horizon in the fallback, same curve as the cast.
+  let mono = true, prev = 257;
+  for (let ly = H - 1; ly >= horizon + 1; ly--) {
+    let pp = ly - horizon; if (pp < 1) pp = 1;
+    const s = Raycaster.shadeFactor((CONFIG.CAMERA_Z * H) / pp, false);
+    if (s > prev) { mono = false; break; }
+    prev = s;
+  }
+  assert(mono, '13f. REND-03 fallback: rows darken monotonically toward the horizon in flat-colour mode');
+
+  // Restore the ship default so the flag never leaks into any later assertion.
+  CONFIG.FLOOR_CAST = true;
+  assert(CONFIG.FLOOR_CAST === true,
+    '13g. REND-03 fallback: CONFIG.FLOOR_CAST restored to true after the fallback probe (no leak)');
+})();
+
+// ===========================================================================
+// 14. REND-03 FALLBACK WHOLE-FRAME COVERAGE at ODD **and** EVEN H (W1/W2). The
+//     flat-colour path shares the cast's y-range/mirror, so it too must skip no row
+//     at either parity. Boot fresh sandboxes, seed a sentinel, render with
+//     FLOOR_CAST=false, and assert full coverage; restore the flag each time.
+// ===========================================================================
+(function () {
+  const SENTINEL = 0x0BADF00D >>> 0;
+  const cases = [
+    { w: 1000, h: 419, oddExpected: true, label: '14a odd-H' },
+    { w: 1280, h: 720, oddExpected: false, label: '14b even-H' }
+  ];
+  for (const c of cases) {
+    const hb = boot({ innerWidth: c.w, innerHeight: c.h });
+    hb.fireLoad();
+    const sb = hb.sandbox;
+    const FB = sb.Framebuffer, RC = sb.Raycaster, LV = sb.Level;
+    const H = FB.height;
+    assert((H % 2 === 1) === c.oddExpected,
+      c.label + '1: derived internal height parity is as expected (H=' + H + ')');
+
+    const o = LV.LANDMARKS.openCell;
+    sb.Player.x = o.x; sb.Player.y = o.y; sb.Player.setDir(1, 0);
+
+    sb.CONFIG.FLOOR_CAST = false;
+    FB.buf32.fill(SENTINEL);
+    RC.render();
+    let left = 0;
+    for (let i = 0; i < FB.buf32.length; i++) if ((FB.buf32[i] >>> 0) === SENTINEL) left++;
+    sb.CONFIG.FLOOR_CAST = true;
+    assert(left === 0,
+      c.label + '2: the flat-colour fallback fills every row at H=' + H + ' (horizon ' + (H >> 1) +
+      ') — no row skipped (' + left + ' left)');
+  }
+})();
+
 finish('ALL_RENDER_CONTRACTS_PASS');
