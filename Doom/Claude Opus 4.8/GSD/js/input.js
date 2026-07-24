@@ -42,6 +42,16 @@ var Input = {
   // rather than propagated so a refused lock never breaks the running loop.
   lockError: null,
 
+  // Counts pointer-lock requests, so the harness can prove the click handler
+  // actually requested lock (i.e. lock is gesture-scoped, not requested at load).
+  lockAttempts: 0,
+
+  // Per-EVENT magnitude clamp for a single mouse movement (pixels). A single huge
+  // movementX after regaining focus cannot spin the camera (threat T-02-12);
+  // accumulation across several events in one frame is preserved — only each
+  // event's own contribution is bounded.
+  MOUSE_MAX_DX: 200,
+
   // ONE reused intent record — never allocate per frame (threat T-02-09). Shape
   // is exactly what Player.update consumes: {forward, strafe, turn, run, mouseDX}.
   intent: { forward: 0, strafe: 0, turn: 0, run: false, mouseDX: 0 }
@@ -65,17 +75,32 @@ var Input = {
   BINDINGS.ShiftRight = { slot: 'run' };
   Input.BINDINGS = BINDINGS;
 
+  // PREVENT — physical key codes whose browser default action is suppressed, so
+  // the page never scrolls while playing (D-07): every bound code plus the
+  // remaining arrows and Space. Null-prototype for a clean membership test.
+  var PREVENT = Object.create(null);
+  for (var code in BINDINGS) PREVENT[code] = true;
+  PREVENT.ArrowUp = true;
+  PREVENT.ArrowDown = true;
+  PREVENT.Space = true;
+  Input.PREVENT = PREVENT;
+
   // ===========================================================================
   // EVENT HANDLERS — module-scope functions bound ONCE (no per-attach closures,
   // no per-frame allocation). Each sets intent only.
   // ===========================================================================
 
   function onKeyDown(e) {
+    // Auto-repeat fires keydown repeatedly while a key is held; the held-key set
+    // only needs the first, so ignore repeats (the set is set once per press).
+    if (e.repeat) { if (PREVENT[e.code] && e.preventDefault) e.preventDefault(); return; }
     Input.keys[e.code] = true;
+    if (PREVENT[e.code] && e.preventDefault) e.preventDefault();
   }
 
   function onKeyUp(e) {
     delete Input.keys[e.code];
+    if (PREVENT[e.code] && e.preventDefault) e.preventDefault();
   }
 
   function onClick() {
@@ -84,10 +109,43 @@ var Input = {
 
   // Accumulate the raw horizontal delta ONLY while the attached canvas holds
   // pointer lock — read at event time so releasing lock stops accumulation
-  // immediately (threat T-02-11).
+  // immediately (threat T-02-11). Each event's contribution is coerced-finite and
+  // magnitude-clamped to MOUSE_MAX_DX before accumulating (threat T-02-12).
   function onMouseMove(e) {
     if (document.pointerLockElement !== Input.canvas) return;
-    Input.mouseDX += e.movementX;
+    var dx = e.movementX;
+    if (!isFinite(dx)) dx = 0;
+    if (dx > Input.MOUSE_MAX_DX) dx = Input.MOUSE_MAX_DX;
+    else if (dx < -Input.MOUSE_MAX_DX) dx = -Input.MOUSE_MAX_DX;
+    Input.mouseDX += dx;
+  }
+
+  // POINTER-LOCK LIFECYCLE (CTRL-02, D-08). On any change, mirror whether the
+  // attached canvas holds lock. On LOSS (e.g. Escape) both zero the accumulator
+  // and reset held keys, so releasing lock cannot leave a stale delta queued or a
+  // key stuck down (threat T-02-13). Arrow-key turning is unaffected by any of
+  // this — it never consults Input.locked (the CTRL-03 fallback).
+  function onPointerLockChange() {
+    var held = document.pointerLockElement === Input.canvas;
+    Input.locked = held;
+    if (!held) {
+      Input.mouseDX = 0;
+      Input.reset();
+    }
+  }
+
+  // A lock FAILURE only records — it must NOT disable turning, because the
+  // arrow-key fallback has to remain fully functional when lock is refused
+  // (CTRL-03, threat T-02-15).
+  function onPointerLockError() {
+    Input.locked = false;
+    Input.lockError = 'pointerlockerror';
+  }
+
+  // Losing window focus clears held keys so a key cannot stay stuck down while
+  // the game is in the background (D-07, threat T-02-13).
+  function onBlur() {
+    Input.reset();
   }
 
   // ===========================================================================
@@ -102,6 +160,11 @@ var Input = {
     canvas.addEventListener('click', onClick);
     // Mouse movement is a document-level signal while locked.
     document.addEventListener('mousemove', onMouseMove);
+    // Pointer-lock lifecycle: track lock state, clean up on loss/error.
+    document.addEventListener('pointerlockchange', onPointerLockChange);
+    document.addEventListener('pointerlockerror', onPointerLockError);
+    // Losing focus must never leave a key stuck down.
+    addEventListener('blur', onBlur);
     return Input;
   };
 
@@ -113,6 +176,7 @@ var Input = {
   Input.requestLock = function () {
     var canvas = Input.canvas;
     if (!canvas || typeof canvas.requestPointerLock !== 'function') return;
+    Input.lockAttempts += 1; // proves the request came from the click gesture
     try {
       var p = canvas.requestPointerLock({ unadjustedMovement: true });
       if (p && typeof p.then === 'function') {
@@ -136,6 +200,11 @@ var Input = {
     intent.turn = 0;
     intent.run = false;
 
+    // The turn slot (ArrowLeft/ArrowRight) is computed PURELY from the held-key
+    // set here, with NO dependency on Input.locked or document.pointerLockElement.
+    // That independence is the CTRL-03 fallback (D-08): keyboard turning must work
+    // when pointer lock is denied, unsupported, or released with Escape — it is a
+    // first-class control path, not a debug affordance.
     var keys = Input.keys;
     for (var code in keys) {
       var b = BINDINGS[code];

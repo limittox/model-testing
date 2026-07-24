@@ -27,9 +27,27 @@ var TopDown = {
   // Packed colours (little-endian RGBA via packRGBA).
   BG: packRGBA(10, 10, 14),      // letterbox behind the map
   FLOOR: packRGBA(40, 40, 48),   // open floor cells
-  GRID: packRGBA(64, 64, 76),    // cell-boundary grid lines (Task 2)
+  GRID: packRGBA(64, 64, 76),    // cell-boundary grid lines
   PLAYER: packRGBA(255, 240, 40),// the player disc
   RAY: packRGBA(255, 90, 40),    // the centre facing ray
+  FOV_RAY: packRGBA(150, 70, 40),// the two field-of-view edge rays (dimmer)
+
+  // Minimum cell size (pixels) at which a one-pixel grid line reads without
+  // swallowing the cell; below this the grid lines are skipped.
+  GRID_MIN_CELL: 4,
+
+  // Spawn-marker colour per type (Level.MARKER_CHARS types, minus 'player' which
+  // is the playerStart, drawn as the player disc). Makes the Phase 5 spawn table
+  // visible now. Unknown types fall back to MARKER_DEFAULT.
+  MARKER_COLORS: {
+    enemy: packRGBA(230, 60, 60),
+    health: packRGBA(80, 230, 120),
+    armor: packRGBA(80, 150, 230),
+    ammo: packRGBA(230, 200, 70),
+    shotgun: packRGBA(230, 140, 50),
+    exit: packRGBA(200, 80, 220)
+  },
+  MARKER_DEFAULT: packRGBA(230, 230, 230),
 
   // Wall colour per wall ID, INDEX-ALIGNED to Level.WALL_TEXTURES
   // ([null, 'stone', 'brick', 'tech', 'door', 'exit']). Index 0 is unused (floor
@@ -164,11 +182,53 @@ var TopDown = {
       }
     }
 
-    // The facing ray is drawn BEFORE the player disc so the disc covers the ray
-    // origin — the pixel at the player's position reads back as the player colour.
+    // One-pixel grid lines at cell boundaries, only when the cell is large enough
+    // for them to read (LVL-01: the parsed grid structure made visible).
+    if (cell >= TopDown.GRID_MIN_CELL) {
+      var gx, gy;
+      for (var cx = 0; cx <= mapW; cx++) {
+        gx = ox + cx * cell;
+        for (gy = oy; gy < oy + mapH * cell; gy++) setPixel(gx, gy, TopDown.GRID, buf, fw, fh);
+      }
+      for (var cy = 0; cy <= mapH; cy++) {
+        gy = oy + cy * cell;
+        for (gx = ox; gx < ox + mapW * cell; gx++) setPixel(gx, gy, TopDown.GRID, buf, fw, fh);
+      }
+    }
+
+    // Spawn markers from Level.spawns as small distinct-coloured squares (Phase 5
+    // spawn table, visible now). A marker cell is floor; the square is inset.
+    var spawns = Level.spawns || [];
+    var inset = cell >= 4 ? 1 : 0;
+    var msz = cell - 2 * inset; if (msz < 1) msz = 1;
+    for (var si = 0; si < spawns.length; si++) {
+      var sp = spawns[si];
+      var mc = TopDown.MARKER_COLORS[sp.type] || TopDown.MARKER_DEFAULT;
+      fillRect(ox + sp.mx * cell + inset, oy + sp.my * cell + inset, msz, msz, mc, buf, fw, fh);
+    }
+
+    // Rays share the player's origin and are drawn BEFORE the player disc, so the
+    // disc covers the origin and the pixel at the player's position reads back as
+    // the player colour.
     var pcx = pxOf(Player.x);
     var pcy = pyOf(Player.y);
-    var rayLen = 2 * cell; // ~two cells
+
+    // The two field-of-view EDGE rays: dir +/- plane is exactly the leftmost and
+    // rightmost ray Phase 3's raycaster will cast, so the camera plane — and the
+    // FOV it defines — is directly observable. Drawn dimmer than the centre ray,
+    // ~three cells long.
+    var fovLen = 3 * cell;
+    drawLine(pcx, pcy,
+      pcx + Math.round((Player.dirX + Player.planeX) * fovLen),
+      pcy + Math.round((Player.dirY + Player.planeY) * fovLen),
+      TopDown.FOV_RAY, buf, fw, fh);
+    drawLine(pcx, pcy,
+      pcx + Math.round((Player.dirX - Player.planeX) * fovLen),
+      pcy + Math.round((Player.dirY - Player.planeY) * fovLen),
+      TopDown.FOV_RAY, buf, fw, fh);
+
+    // The centre facing ray, ~two cells long, over the FOV edges.
+    var rayLen = 2 * cell;
     drawLine(pcx, pcy,
       pcx + Math.round(Player.dirX * rayLen),
       pcy + Math.round(Player.dirY * rayLen),
