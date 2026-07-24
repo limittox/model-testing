@@ -367,4 +367,99 @@ function poseOf() {
     '8b. index.html references nothing under tools/ — the harness is never browser-loaded');
 })();
 
+// ===========================================================================
+// 9. REND-04 — DISTANCE SHADING + FOG + CONSTANT Y-SIDE DARKEN.
+//    Part A asserts the exposed fixed-point helpers directly (boundary values,
+//    monotonicity, the MIN_SHADE floor, the y-side darken, alpha preservation).
+//    Part B drives the render path: the SAME wall face at two depths must get
+//    brighter as it nears, and a rendered wall pixel must equal exactly
+//    applyShade(base, shadeFactor(perpWall, side==1)).
+// ===========================================================================
+(function () {
+  const shadeFactor = Raycaster.shadeFactor;
+  const applyShade = Raycaster.applyShade;
+  const FLOOR256 = (CONFIG.MIN_SHADE * 256) | 0;
+
+  // --- Part A: the helpers in isolation ------------------------------------
+  assert(shadeFactor(0, false) === 256,
+    '9a. REND-04: shadeFactor(0,false) === 256 (full brightness at the camera)');
+
+  assert(shadeFactor(CONFIG.FOG_FAR, false) === FLOOR256,
+    '9b. REND-04: shadeFactor(FOG_FAR,false) reaches the MIN_SHADE floor ((MIN_SHADE*256)|0 = ' +
+    FLOOR256 + ')');
+
+  assert(shadeFactor(CONFIG.FOG_FAR * 4, false) === FLOOR256,
+    '9c. REND-04: shadeFactor never drops below the floor past FOG_FAR (clamped at ' +
+    FLOOR256 + ')');
+
+  // Monotonic non-increasing brightness with distance (no fog banding reversal).
+  let mono = true, prev = 257;
+  for (let d = 0; d <= CONFIG.FOG_FAR * 1.5; d += 0.25) {
+    const v = shadeFactor(d, false);
+    if (v > prev) { mono = false; break; }
+    prev = v;
+  }
+  assert(mono, '9d. REND-04: shadeFactor is monotonically non-increasing with distance');
+
+  // Y-side darker than X-side at equal distance, and EXACTLY the pre-side value
+  // scaled by SIDE_SHADE (the fixed-point relationship, no clamp biting at dmid).
+  const dmid = CONFIG.FOG_FAR * 0.4;
+  const expectYSide = (((1 - dmid / CONFIG.FOG_FAR) * CONFIG.SIDE_SHADE) * 256) | 0;
+  assert(shadeFactor(dmid, true) < shadeFactor(dmid, false),
+    '9e. REND-04: a y-side column is darker than an x-side column at equal distance');
+  assert(shadeFactor(dmid, true) === expectYSide,
+    '9f. REND-04: shadeFactor(d,true) === pre-side value * SIDE_SHADE in fixed point (' +
+    expectYSide + ')');
+
+  // applyShade(_, 256) preserves rgb and forces opaque alpha; no R/B swap.
+  const probe = s.packRGBA(200, 100, 50);
+  const expectId = (0xFF000000 | (50 << 16) | (100 << 8) | 200) >>> 0;
+  assert(applyShade(probe, 256) === expectId,
+    '9g. REND-04: applyShade(packed,256) preserves rgb in packRGBA layout (no R/B swap)');
+  assert((applyShade(0x00000000, 256) >>> 24) === 0xFF,
+    '9h. REND-04: applyShade forces the alpha byte opaque (0xFF) — no translucent pixels');
+
+  // --- Part B: the render path (near-vs-far on the SAME wall face) ----------
+  const L = Level.LANDMARKS.wallFaceEast;
+  const W = Framebuffer.width;
+  const H = Framebuffer.height;
+  const horizon = H >> 1;
+  const xc = W >> 1;                        // centre column: cameraX ~ 0, ray ~ dir
+
+  // Near: standing half a cell off the east wall face, looking straight at it.
+  Player.x = L.x; Player.y = L.y;
+  Player.setDir(1, 0);
+  Raycaster.render();
+  const zNear = Framebuffer.zBuffer[xc];
+  const pxNear = Framebuffer.buf32[horizon * W + xc];
+  const nearLum = (pxNear & 0xFF) + ((pxNear >> 8) & 0xFF) + ((pxNear >> 16) & 0xFF);
+
+  // Exact-pixel check: the centre column hits the east wall face on an x-step
+  // (side 0), so the shaded solid base colour must reproduce exactly.
+  const ref = referenceDDA(poseOf(), W);
+  const sideC = ref.side[xc];
+  const idC = Level.cellAt(ref.hx[xc], ref.hy[xc]);
+  const baseC = (idC >= 1 && idC < Raycaster.WALL_COLORS.length)
+    ? Raycaster.WALL_COLORS[idC] : Raycaster.WALL_FALLBACK;
+  const expectPx = applyShade(baseC, shadeFactor(zNear, sideC === 1));
+  assert(pxNear === expectPx,
+    '9i. REND-04: a rendered wall pixel === applyShade(base, shadeFactor(perpWall, side==1)) exactly');
+
+  // Far: step back one whole cell along -x (still open floor west of the face);
+  // the same face is now farther, so the same column must be dimmer.
+  Player.x = L.x - 1; Player.y = L.y;
+  Player.setDir(1, 0);
+  Raycaster.render();
+  const zFar = Framebuffer.zBuffer[xc];
+  const pxFar = Framebuffer.buf32[horizon * W + xc];
+  const farLum = (pxFar & 0xFF) + ((pxFar >> 8) & 0xFF) + ((pxFar >> 16) & 0xFF);
+
+  assert(zFar > zNear,
+    '9j. REND-04: stepping back increases the perpendicular distance to the same face (' +
+    zNear.toFixed(3) + ' -> ' + zFar.toFixed(3) + ')');
+  assert(nearLum > farLum,
+    '9k. REND-04: the SAME wall face is brighter up close than far away (near ' +
+    nearLum + ' > far ' + farLum + ') — distance fog is applied');
+})();
+
 finish('ALL_RENDER_CONTRACTS_PASS');

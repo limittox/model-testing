@@ -59,6 +59,37 @@ var Raycaster = {
   'use strict';
 
   // ===========================================================================
+  // SHADING HELPERS (REND-04) — RESEARCH Pattern 5, CONTEXT decision 4.
+  //
+  // shadeFactor(dist, isYSide): a monotonic linear fog falloff (1 at the camera,
+  // reaching the CONFIG.MIN_SHADE readability floor at CONFIG.FOG_FAR and never
+  // dropping below it), with a constant y-side (side==1) darken. Returned as an
+  // INTEGER fixed-point shade in [0, 256] so the inner loop is (channel * shade)
+  // >> 8 — no float multiply per pixel. perpWall is CONSTANT for a whole wall
+  // column, so this is computed ONCE per column, not per texel.
+  //
+  // applyShade(packed, shade): unpack r/g/b from a little-endian packed texel
+  // ((a<<24)|(b<<16)|(g<<8)|r — packRGBA's layout), scale each channel by the
+  // fixed-point shade, repack, and force the alpha byte OPAQUE (0xFF). Preserving
+  // alpha here is what keeps the 03-01 Pitfall-6 alpha-drop bug from returning.
+  // ===========================================================================
+  Raycaster.shadeFactor = function (dist, isYSide) {
+    var s = 1 - dist / CONFIG.FOG_FAR;      // linear: 1 at camera, 0 at FOG_FAR
+    if (s < CONFIG.MIN_SHADE) s = CONFIG.MIN_SHADE;  // brightness floor (readability)
+    if (s > 1) s = 1;
+    if (isYSide) s *= CONFIG.SIDE_SHADE;    // constant y-side depth cue
+    return (s * 256) | 0;                   // 0..256 fixed point
+  };
+
+  Raycaster.applyShade = function (packed, shade /* 0..256 */) {
+    var r = ((packed & 0xFF) * shade) >> 8;
+    var g = (((packed >> 8) & 0xFF) * shade) >> 8;
+    var b = (((packed >> 16) & 0xFF) * shade) >> 8;
+    // High byte forced 0xFF (opaque); layout matches packRGBA exactly (no R/B swap).
+    return (0xFF000000 | (b << 16) | (g << 8) | r) >>> 0;
+  };
+
+  // ===========================================================================
   // RENDER — Pass A (whole-frame fill) then Pass B (DDA wall pass). Writes buf32
   // + zBuffer, NEVER presents. Reads Framebuffer.width/height LIVE every call
   // (internal height is aspect-derived in [200,480]; never cache across frames).
@@ -79,6 +110,10 @@ var Raycaster = {
     var BIG = Raycaster.BIG;
     var wallColors = Raycaster.WALL_COLORS;
     var wallFallback = Raycaster.WALL_FALLBACK;
+    // Shade helpers hoisted to locals once per frame (no per-column property read,
+    // no per-pixel allocation). REND-04 shading path — see the helper block above.
+    var shadeFactor = Raycaster.shadeFactor;
+    var applyShade = Raycaster.applyShade;
 
     // ---- PASS A: whole-frame two-tone fill (ceiling above, floor below) ------
     // Every pixel written, so the frame is fully painted and the horizon reads.
@@ -136,17 +171,17 @@ var Raycaster = {
       var clampedStart = drawStart < 0 ? 0 : drawStart;
       var clampedEnd = drawEnd > H ? H : drawEnd;   // exclusive loop bound
 
-      // Solid base colour for the hit wall id (03-02 swaps in the sampled texel).
+      // Solid base colour for the hit wall id (03-02 Task 2 swaps in the sampled
+      // texel; the shade path below is identical either way).
       var id = Level.cellAt(mapX, mapY);
       var color = (id >= 1 && id < wallColors.length) ? wallColors[id] : wallFallback;
-      // One-op y-side depth cue: halve every RGB channel so perpendicular
-      // (side==1) faces read as lit differently from side==0 faces. NOTE: our
-      // packing is little-endian ARGB (alpha in the HIGH byte), so Lodev's bare
-      // (color>>1)&0x7F7F7F — which is written for 0x00RRGGBB colours — would zero
-      // the alpha byte and make the wall TRANSPARENT (Pitfall 6). OR the opaque
-      // alpha back so the framebuffer stays fully opaque.
-      if (side === 1) color = (0xFF000000 | ((color >> 1) & 0x7F7F7F)) >>> 0;
-      color = color >>> 0;
+
+      // REND-04: compute the fog+side shade ONCE per column (perpWall is constant
+      // for the whole column) and apply it to the base colour. This full fog curve
+      // + MIN_SHADE floor + constant SIDE_SHADE supersedes the tracer's crude
+      // one-op (color>>1)&0x7F7F7F y-side darken.
+      var colShade = shadeFactor(perpWall, side === 1);
+      color = applyShade(color, colShade);
 
       for (var yy = clampedStart; yy < clampedEnd; yy++) {
         buf[yy * W + x] = color;
