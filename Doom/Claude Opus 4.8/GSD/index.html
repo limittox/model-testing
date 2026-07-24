@@ -39,10 +39,25 @@
                               it carries no hard dependency of its own; it sits
                               here so the chain reads "assets first, world
                               second, entry point last".
-      7. js/main.js         — entry point (needs CONFIG + Framebuffer + assets)
+      7. js/player.js       — defines Player: the vector camera pose
+                              {x,y,dirX,dirY,planeX,planeY} (D-01), single-matrix
+                              rotation, and per-axis radius collision that slides
+                              along walls (needs CONFIG + Level).
+      8. js/game.js         — defines Game: the requestAnimationFrame loop with
+                              the CLAMPED delta-time (CONFIG.DT_MAX), the refocus
+                              resync, and the two seams. Game.input (an intent
+                              source) and Game.view (a buf32 writer that does NOT
+                              present) are the seams Plan 03 fills and Phase 3
+                              re-points at the raycaster. The delta-time clamp
+                              lives in CONFIG.DT_MAX; the single Framebuffer
+                              present() lives in Game.render() so the once-per-
+                              frame blit contract survives every view swap.
+      9. js/main.js         — entry point (needs CONFIG + Framebuffer + assets +
+                              Level + Player + Game): builds the level, spawns the
+                              player, attaches resync triggers, starts the loop.
       i.e. config -> framebuffer -> textures -> sprites -> preview -> level ->
-      main. Order encodes the dependency graph: later files extend earlier
-      globals.
+      player -> game -> main. Order encodes the dependency graph: later files
+      extend earlier globals.
 
       NOT LOADED HERE: everything under tools/. Those are Node-only .cjs
       verification harnesses; the browser never sees them, which is why the
@@ -70,6 +85,8 @@
   <script src="js/sprites.js"></script>
   <script src="js/preview.js"></script>
   <script src="js/level.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/game.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>
