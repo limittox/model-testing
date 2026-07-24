@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 03
 current_phase_name: core-renderer-walls-floors-ceilings
 status: executing
-stopped_at: Completed 02-03-PLAN.md
-last_updated: "2026-07-24T05:35:07.478Z"
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-07-24T14:02:59.614Z"
 last_activity: 2026-07-24
 last_activity_desc: Phase 03 execution started
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 8
+  completed_plans: 6
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-07-23)
 ## Current Position
 
 Phase: 03 (core-renderer-walls-floors-ceilings) — EXECUTING
-Plan: 1 of 3
-Status: Executing Phase 03
+Plan: 2 of 3
+Status: Ready to execute
 Last activity: 2026-07-24 — Phase 03 execution started
 
-Progress: [██████████] 100%
+Progress: [████████░░] 75%
 
 ## Performance Metrics
 
@@ -63,6 +63,7 @@ Progress: [██████████] 100%
 | Phase 02 P01 | 12min | 3 tasks | 4 files |
 | Phase 02 P02 | 12min | 3 tasks | 6 files |
 | Phase 02 P03 | 16min | 3 tasks | 6 files |
+| Phase 03 P01 | 35min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -89,6 +90,8 @@ Recent decisions affecting current work:
 - [Phase ?]: Input is intent-only: handlers hold a physical event.code set + a drain-on-read mouse delta, never mutating the player; readIntent samples once per frame
 - [Phase ?]: Arrow-key turn is independent of pointer-lock state (CTRL-03 fallback); mouse deltas accumulate only while the canvas holds lock, checked at event time, and each event is magnitude-clamped to MOUSE_MAX_DX
 - [Phase ?]: The top-down view writes buf32 and never presents; Phase 3 swaps in the raycaster by flipping TopDown.ENABLED and re-pointing Game.view alone
+- [Phase ?]: 03-01: Raycaster uses perpendicular wall distance (sideDist-deltaDist) + 1e30 axis-ray sentinel + per-column zBuffer; three-pass skeleton (Pass A fills frame, Pass B overwrites walls)
+- [Phase ?]: 03-01: y-side depth cue OR-backs opaque alpha (0xFF000000 | ((color>>1)&0x7F7F7F)) — bare Lodev mask drops alpha in ARGB packing (Pitfall 6 fix)
 
 ### Pending Todos
 
@@ -113,6 +116,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-24T05:26:43.352Z
-Stopped at: Completed 02-03-PLAN.md
+Last session: 2026-07-24T14:02:44.566Z
+Stopped at: Completed 03-01-PLAN.md
 Resume file: None
