@@ -43,6 +43,7 @@ const Level = s.Level;
 const Player = s.Player;
 const Input = s.Input;
 const TopDown = s.TopDown;
+const Raycaster = s.Raycaster;
 const Game = s.Game;
 const raf = h.raf;
 
@@ -67,12 +68,13 @@ const step = (ms) => raf.step(ms);
 //    preview, level, player, input, topdown, game, main, all classic scripts.
 // ===========================================================================
 (function () {
+  // Phase 3 inserted js/raycaster.js after topdown and before game (12 scripts).
   const expected = ['config', 'framebuffer', 'textures', 'sprites', 'preview',
-    'level', 'player', 'input', 'topdown', 'game', 'main'];
+    'level', 'player', 'input', 'topdown', 'raycaster', 'game', 'main'];
   const got = h.scriptOrder.map((src) => src.replace(/^js\//, '').replace(/\.js$/i, ''));
   const orderOk = got.length === expected.length &&
     expected.every((name, i) => got[i] === name);
-  assert(orderOk, '1a. index.html loads the 11 scripts in the exact shipped order');
+  assert(orderOk, '1a. index.html loads the 12 scripts in the exact shipped order (raycaster after topdown)');
 
   // Classic scripts only: no module loader anywhere in the shipped script tags.
   const classicOk = !/<script\b[^>]*\btype\s*=\s*"module"/i.test(h.html);
@@ -84,11 +86,14 @@ const step = (ms) => raf.step(ms);
 // ===========================================================================
 (function () {
   const inputOk = Game.input === Input;
-  const viewOk = Game.view === TopDown && TopDown.ENABLED === true;
+  // Phase 3 swapped the view seam: Game.view is now the Raycaster and TopDown is
+  // disabled but still loaded (a debug toggle). Section 7 exercises TopDown directly.
+  const viewOk = Game.view === Raycaster && TopDown.ENABLED === false &&
+    typeof TopDown.render === 'function';
   const runningOk = Game.running === true;
   const spawnOk = !Level.isSolid(Math.floor(Player.x), Math.floor(Player.y));
   assert(inputOk, '2a. Game.input is the Input global');
-  assert(viewOk, '2b. Game.view is the TopDown global and TopDown.ENABLED is true');
+  assert(viewOk, '2b. Game.view is the Raycaster global; TopDown is disabled but still loaded (Phase 3 view swap)');
   assert(runningOk, '2c. Game.running is true after start');
   assert(spawnOk, '2d. the player spawned on a non-solid cell (real spawn pose)');
 })();
@@ -180,21 +185,25 @@ assert(near(Game.dt, 0, 1e-12) && Game.resync === false,
 })();
 
 // ===========================================================================
-// 7. THE VIEW DREW — the framebuffer is non-uniform, carries at least two
-//    distinct wall colours, the player's pixel is the player colour, and the
-//    present counter incremented exactly once per frame across the whole run.
+// 7. THE VIEW DREW — after a stepped frame the ACTIVE view (the Raycaster) drew a
+//    non-uniform frame; then, exercising the RETAINED TopDown debug view directly,
+//    its map/player pixels appear. One present per frame holds across the whole run.
 // ===========================================================================
 (function () {
   placeOpen(1, 0);
-  step(16); // one clean render at the openCell pose
+  step(16); // one clean render at the openCell pose — the ACTIVE view is Raycaster
 
   const buf = s.Framebuffer.buf32;
 
-  // Not a single uniform value.
+  // The active (Raycaster) view produced a non-uniform frame.
   let uniform = true;
   const first = buf[0];
   for (let i = 1; i < buf.length; i++) { if (buf[i] !== first) { uniform = false; break; } }
-  assert(!uniform, '7a. the framebuffer is not a single uniform value (the view drew)');
+  assert(!uniform, '7a. the framebuffer is not a single uniform value (the active Raycaster view drew)');
+
+  // Exercise the retained TopDown debug view directly (it no longer auto-attaches
+  // to Game.view, but the file stays loaded and must still render correctly).
+  TopDown.render();
 
   // At least two distinct wall colours from TopDown.WALL_COLORS are present.
   const present = new Set();

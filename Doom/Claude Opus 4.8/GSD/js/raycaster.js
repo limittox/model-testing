@@ -139,9 +139,13 @@ var Raycaster = {
       // Solid base colour for the hit wall id (03-02 swaps in the sampled texel).
       var id = Level.cellAt(mapX, mapY);
       var color = (id >= 1 && id < wallColors.length) ? wallColors[id] : wallFallback;
-      // One-op y-side depth cue: halve every channel so perpendicular (side==1)
-      // faces read as lit differently from side==0 faces.
-      if (side === 1) color = (color >> 1) & 0x7F7F7F;
+      // One-op y-side depth cue: halve every RGB channel so perpendicular
+      // (side==1) faces read as lit differently from side==0 faces. NOTE: our
+      // packing is little-endian ARGB (alpha in the HIGH byte), so Lodev's bare
+      // (color>>1)&0x7F7F7F — which is written for 0x00RRGGBB colours — would zero
+      // the alpha byte and make the wall TRANSPARENT (Pitfall 6). OR the opaque
+      // alpha back so the framebuffer stays fully opaque.
+      if (side === 1) color = (0xFF000000 | ((color >> 1) & 0x7F7F7F)) >>> 0;
       color = color >>> 0;
 
       for (var yy = clampedStart; yy < clampedEnd; yy++) {

@@ -37,6 +37,7 @@ const Level = s.Level;
 const Player = s.Player;
 const Input = s.Input;
 const TopDown = s.TopDown;
+const Raycaster = s.Raycaster;
 const Game = s.Game;
 const Framebuffer = s.Framebuffer;
 const raf = h.raf;
@@ -375,17 +376,19 @@ heading('CRITERION 4: level structure and top-down pose verification');
   assert(!!Level.LANDMARKS.corridorCell, '4.2 the level exposes at least one one-cell-wide corridor cell');
   assert(allIds, '4.3 all five wall IDs (1..5) are in use in the grid');
 
-  // The view is wired and does NOT itself present.
-  assert(TopDown.ENABLED === true && Game.view === TopDown,
-    '4.4 TopDown.ENABLED is true and Game.view is TopDown');
+  // Phase 3 swapped the live view to the Raycaster and disabled TopDown, but the
+  // TopDown file is retained as a debug toggle and must still render on demand.
+  // The Phase 2 top-down pose checks below therefore render TopDown DIRECTLY.
+  assert(TopDown.ENABLED === false && Game.view === Raycaster,
+    '4.4 Phase 3 view swap: TopDown.ENABLED is false and Game.view is the Raycaster');
   const putBefore = h.putCount();
   TopDown.render();
   assert(h.putCount() === putBefore,
     '4.5 a direct TopDown.render() does not present (putImageData count unchanged)');
 
-  // The framebuffer carries the pose and the map after a frame.
+  // The framebuffer carries the pose and the map after a direct TopDown render.
   placeOpen(1, 0);
-  step(16);
+  TopDown.render();
   const buf = Framebuffer.buf32;
   const p = TopDown.toScreen(Player.x, Player.y);
   assert(buf[p.sy * Framebuffer.width + p.sx] === TopDown.PLAYER,
