@@ -26,6 +26,15 @@ window.addEventListener('load', function () {
   // Build the world, place the player, and register the refocus resync triggers.
   Level.build();
   Player.spawn();
+
+  // Wire the two Plan 02 seams. Input feeds intent (keyboard + pointer-lock mouse)
+  // into Game.step; TopDown feeds the top-down verification view into Game.render.
+  // TopDown is temporary Phase 2 scaffolding — Phase 3 swaps in the raycaster by
+  // re-pointing Game.view alone.
+  Input.attach(game);
+  Game.input = Input;
+  Game.view = TopDown.ENABLED ? TopDown : null;
+
   Game.attach();
 
   // Start the heartbeat. The first frame is a resync frame (dt 0): it skips the

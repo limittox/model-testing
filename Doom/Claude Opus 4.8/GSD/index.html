@@ -43,7 +43,21 @@
                               {x,y,dirX,dirY,planeX,planeY} (D-01), single-matrix
                               rotation, and per-axis radius collision that slides
                               along walls (needs CONFIG + Level).
-      8. js/game.js         — defines Game: the requestAnimationFrame loop with
+      8. js/input.js        — defines Input: live keyboard + pointer-lock mouse as
+                              INTENT ONLY (D-07/D-08). Handlers hold a set of
+                              physical key codes and an accumulated mouse delta;
+                              readIntent() samples them once per frame and drains
+                              the mouse delta. Assigned to the Game.input seam by
+                              main.js. Needs Player only indirectly.
+      9. js/topdown.js      — defines TopDown: the TEMPORARY Phase 2 top-down
+                              verification view (D-09). render() writes the parsed
+                              grid, spawn markers, the player and its facing/FOV
+                              rays into Framebuffer.buf32 and does NOT present.
+                              Attached through the Game.view seam behind
+                              TopDown.ENABLED; PHASE 3 REPLACES IT BY RE-POINTING
+                              THAT ONE ASSIGNMENT at the raycaster. Needs Level +
+                              Player + Framebuffer.
+     10. js/game.js         — defines Game: the requestAnimationFrame loop with
                               the CLAMPED delta-time (CONFIG.DT_MAX), the refocus
                               resync, and the two seams. Game.input (an intent
                               source) and Game.view (a buf32 writer that does NOT
@@ -52,12 +66,14 @@
                               lives in CONFIG.DT_MAX; the single Framebuffer
                               present() lives in Game.render() so the once-per-
                               frame blit contract survives every view swap.
-      9. js/main.js         — entry point (needs CONFIG + Framebuffer + assets +
-                              Level + Player + Game): builds the level, spawns the
-                              player, attaches resync triggers, starts the loop.
+     11. js/main.js         — entry point (needs CONFIG + Framebuffer + assets +
+                              Level + Player + Input + TopDown + Game): builds the
+                              level, spawns the player, wires Game.input = Input
+                              and Game.view = TopDown, attaches resync triggers,
+                              starts the loop.
       i.e. config -> framebuffer -> textures -> sprites -> preview -> level ->
-      player -> game -> main. Order encodes the dependency graph: later files
-      extend earlier globals.
+      player -> input -> topdown -> game -> main. Order encodes the dependency
+      graph: later files extend earlier globals.
 
       NOT LOADED HERE: everything under tools/. Those are Node-only .cjs
       verification harnesses; the browser never sees them, which is why the
@@ -86,6 +102,8 @@
   <script src="js/preview.js"></script>
   <script src="js/level.js"></script>
   <script src="js/player.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/topdown.js"></script>
   <script src="js/game.js"></script>
   <script src="js/main.js"></script>
 </body>
