@@ -13,7 +13,7 @@ All code lives under `Doom/Claude Opus 4.8/GSD/`.
 - [x] **PLAT-01**: Game runs in a current desktop browser with no build step and no npm install
 - [x] **PLAT-02**: Game loads and plays from `file://` (double-click `index.html`) as well as from a static server
 - [x] **PLAT-03**: Game is fully self-contained — no network requests, no external textures, sprites, fonts, or audio files
-- [ ] **PLAT-04**: Game loop uses `requestAnimationFrame` with a clamped delta-time so motion is frame-rate independent and survives tab refocus
+- [x] **PLAT-04**: Game loop uses `requestAnimationFrame` with a clamped delta-time so motion is frame-rate independent and survives tab refocus
 
 ### Rendering
 
@@ -26,10 +26,10 @@ All code lives under `Doom/Claude Opus 4.8/GSD/`.
 
 ### Controls
 
-- [ ] **CTRL-01**: Player moves forward/back and strafes left/right (WASD) with a run modifier
+- [x] **CTRL-01**: Player moves forward/back and strafes left/right (WASD) with a run modifier
 - [ ] **CTRL-02**: Player turns via mouse-look using the Pointer Lock API
 - [ ] **CTRL-03**: Player can also turn with the keyboard (arrow keys) as a fallback when pointer lock is unavailable
-- [ ] **CTRL-04**: Player collides with walls and cannot pass through geometry (no tunneling at high speed)
+- [x] **CTRL-04**: Player collides with walls and cannot pass through geometry (no tunneling at high speed)
 
 ### Entities
 
@@ -123,11 +123,11 @@ Which phases cover which requirements. Populated during roadmap creation.
 | PLAT-02 | Phase 1 | Complete |
 | PLAT-03 | Phase 1 | Complete |
 | REND-05 | Phase 1 | Complete |
-| PLAT-04 | Phase 2 | Pending |
-| CTRL-01 | Phase 2 | Pending |
+| PLAT-04 | Phase 2 | Complete |
+| CTRL-01 | Phase 2 | Complete |
 | CTRL-02 | Phase 2 | Pending |
 | CTRL-03 | Phase 2 | Pending |
-| CTRL-04 | Phase 2 | Pending |
+| CTRL-04 | Phase 2 | Complete |
 | LVL-01 | Phase 2 | Complete |
 | REND-01 | Phase 3 | Pending |
 | REND-02 | Phase 3 | Pending |
