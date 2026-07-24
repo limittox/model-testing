@@ -32,9 +32,21 @@
       4. js/sprites.js      — defines Sprites (needs CONFIG/packRGBA/mulberry32)
       5. js/preview.js      — defines Preview (needs Framebuffer + Textures +
                               Sprites); the load-time generated-art atlas
-      6. js/main.js         — entry point (needs CONFIG + Framebuffer + assets)
-      i.e. config -> framebuffer -> textures -> sprites -> preview -> main.
-      Order encodes the dependency graph: later files extend earlier globals.
+      6. js/level.js        — defines Level: the parsed grid world (wall-ID
+                              cells, forced-solid border, wall-ID -> texture
+                              table, marker tables, LANDMARKS, line of sight).
+                              Reads Textures.map LAZILY inside its accessors, so
+                              it carries no hard dependency of its own; it sits
+                              here so the chain reads "assets first, world
+                              second, entry point last".
+      7. js/main.js         — entry point (needs CONFIG + Framebuffer + assets)
+      i.e. config -> framebuffer -> textures -> sprites -> preview -> level ->
+      main. Order encodes the dependency graph: later files extend earlier
+      globals.
+
+      NOT LOADED HERE: everything under tools/. Those are Node-only .cjs
+      verification harnesses; the browser never sees them, which is why the
+      self-containment gate is scoped to index.html, style.css and js/ only.
 
     ASSET-BUFFER CONTRACT (Plan 02 — consumed by Phases 3 and 4):
       Every texture/sprite is a flat
@@ -57,6 +69,7 @@
   <script src="js/textures.js"></script>
   <script src="js/sprites.js"></script>
   <script src="js/preview.js"></script>
+  <script src="js/level.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>
