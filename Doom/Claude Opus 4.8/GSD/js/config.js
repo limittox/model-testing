@@ -55,6 +55,13 @@ var CONFIG = {
   // --- Camera / renderer tuning (consumed by later phases) ---
   // FOV_PLANE: camera-plane half-length; ~0.66 gives the classic ~66deg FOV.
   FOV_PLANE: 0.66,
+  // DT_MAX: the delta-time CLAMP (seconds). Every frame's dt is min(raw, DT_MAX),
+  // so one frame — even after a multi-second tab-refocus or GC pause — can move
+  // the player at most WALK_SPEED*RUN_MULT*DT_MAX cells. That derived budget must
+  // stay well under one cell so tunneling through a one-cell wall is impossible
+  // (D-05). This is the SINGLE source of the per-frame step bound; game.js applies
+  // it and player.js reads it via maxStepPerFrame() — never duplicated.
+  DT_MAX: 0.05,
   // TEX_SIZE: 64, a power of two so the renderer masks texel coords with `& 63`.
   TEX_SIZE: 64,
   // SEED: integer feeding mulberry32 for deterministic procedural generation.
