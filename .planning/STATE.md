@@ -4,16 +4,16 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 03
 current_phase_name: core-renderer-walls-floors-ceilings
-status: executing
-stopped_at: Completed 03-02-PLAN.md
-last_updated: "2026-07-24T14:20:24.840Z"
+status: verifying
+stopped_at: Completed 03-03-PLAN.md
+last_updated: "2026-07-24T14:34:21.459Z"
 last_activity: 2026-07-24
 last_activity_desc: Phase 03 execution started
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 8
-  completed_plans: 7
+  completed_plans: 8
 ---
 
 # Project State
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-07-23)
 
 Phase: 03 (core-renderer-walls-floors-ceilings) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-24 — Phase 03 execution started
 
-Progress: [█████████░] 88%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -65,6 +65,7 @@ Progress: [█████████░] 88%
 | Phase 02 P03 | 16min | 3 tasks | 6 files |
 | Phase 03 P01 | 35min | 2 tasks | 7 files |
 | Phase 03 P02 | 10min | 2 tasks | 2 files |
+| Phase 03 P03 | 15min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -95,6 +96,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 03-01: y-side depth cue OR-backs opaque alpha (0xFF000000 | ((color>>1)&0x7F7F7F)) — bare Lodev mask drops alpha in ARGB packing (Pitfall 6 fix)
 - [Phase ?]: 03-02: fixed-point [0,256] shade computed once per wall column; texel = one packed read + (chan*shade)>>8 + packed write
 - [Phase ?]: 03-02: removed tracer solid WALL_COLORS table — wall id now selects a Textures.map texture, sampled with side-flipped texX + unclamped texPos
+- [Phase ?]: 03-03: Pass A loops y in [horizon,H) with mirror (H-1-y) and clamps the horizon row (p=1) — guarantees full frame coverage at both even and odd internal height with no parity special-case
+- [Phase ?]: 03-03: floor/ceiling whole-frame coverage is asserted with a distinct seeded sentinel, never a CLEAR_COLOR scan (a shaded texel can coincide with CLEAR_COLOR)
+- [Phase ?]: 03-03: CONFIG.FLOOR_CAST=false fallback shades flat FLOOR/CEIL colors via the same shadeFactor(rowDistance,false) as the textured cast — a real exercised path, not dead code
 
 ### Pending Todos
 
@@ -119,6 +123,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-24T14:20:13.787Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-07-24T14:34:05.067Z
+Stopped at: Completed 03-03-PLAN.md
 Resume file: None

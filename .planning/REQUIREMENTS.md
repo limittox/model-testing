@@ -19,7 +19,7 @@ All code lives under `Doom/Claude Opus 4.8/GSD/`.
 
 - [x] **REND-01**: Walls are drawn with a DDA raycaster using perpendicular wall distance (no fisheye distortion)
 - [x] **REND-02**: Walls are textured, with the correct texture column sampled per screen column
-- [ ] **REND-03**: Floors and ceilings are cast and shaded (textured, with a flat-color fallback path if needed)
+- [x] **REND-03**: Floors and ceilings are cast and shaded (textured, with a flat-color fallback path if needed)
 - [x] **REND-04**: Distance-based shading/fog darkens surfaces with depth for atmosphere
 - [x] **REND-05**: The world renders into a fixed low-resolution Uint32 framebuffer that is CSS-upscaled with pixelated scaling for the retro look and real-time performance
 - [x] **REND-06**: A per-column depth (z) buffer is produced by the wall pass for later sprite occlusion
@@ -131,7 +131,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | LVL-01 | Phase 2 | Complete |
 | REND-01 | Phase 3 | Complete |
 | REND-02 | Phase 3 | Complete |
-| REND-03 | Phase 3 | Pending |
+| REND-03 | Phase 3 | Complete |
 | REND-04 | Phase 3 | Complete |
 | REND-06 | Phase 3 | Complete |
 | ENT-01 | Phase 4 | Pending |
