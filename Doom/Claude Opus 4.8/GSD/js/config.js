@@ -73,5 +73,26 @@ var CONFIG = {
   // Flat-fill fallbacks for the floor/ceiling pass before textured casting
   // lands (Phase 3): ceiling a dim blue-grey, floor a warmer brown-grey.
   CEIL_COLOR: packRGBA(48, 52, 66),
-  FLOOR_COLOR: packRGBA(58, 50, 42)
+  FLOOR_COLOR: packRGBA(58, 50, 42),
+
+  // --- Renderer constants (Phase 3 — consumed by the Raycaster view) ---
+  // FLOOR_CAST: textured floor/ceiling casting ON. When false, the 03-03 fallback
+  // fills floor/ceiling with distance-shaded FLAT colours — a real, correct path,
+  // not dead code. This tracer only flat-fills (Pass A two-tone); the flag is
+  // wired now so 03-03 is a functionality fill, not an architecture change.
+  FLOOR_CAST: true,
+  // CAMERA_Z: camera height as a fraction of wall height. LOAD-BEARING (not
+  // arbitrary): 0.5 places the eye at wall mid-height so the row-cast floor
+  // (03-03) aligns exactly to the wall base. posZ = CAMERA_Z * H.
+  CAMERA_Z: 0.5,
+  // FOG_FAR / MIN_SHADE / SIDE_SHADE: AESTHETIC TUNABLES — starting points from the
+  // classic Doom/Wolfenstein look, not derived from a spec. They need ONE in-browser
+  // tuning pass (does the far distance read, are silhouettes still visible). The
+  // shape (linear falloff to a brightness floor + a constant y-side darken) is the
+  // standard and is safe; only the numbers are eyeballed.
+  FOG_FAR: 14.0,     // world distance (cells) at which shading reaches MIN_SHADE
+  MIN_SHADE: 0.28,   // brightness floor — keep silhouettes readable
+  SIDE_SHADE: 0.70,  // constant multiplier for side==1 (y-side) walls — depth cue
+  // FOG_COLOR: the ambient the far distance fades toward (matches CLEAR_COLOR).
+  FOG_COLOR: packRGBA(24, 26, 34)
 };

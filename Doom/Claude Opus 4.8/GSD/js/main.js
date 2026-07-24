@@ -27,13 +27,17 @@ window.addEventListener('load', function () {
   Level.build();
   Player.spawn();
 
-  // Wire the two Plan 02 seams. Input feeds intent (keyboard + pointer-lock mouse)
-  // into Game.step; TopDown feeds the top-down verification view into Game.render.
-  // TopDown is temporary Phase 2 scaffolding — Phase 3 swaps in the raycaster by
-  // re-pointing Game.view alone.
+  // Wire the two seams. Input feeds intent (keyboard + pointer-lock mouse) into
+  // Game.step; Game.view feeds the rendered frame into Game.render.
+  //
+  // PHASE 3 SWAP: the first-person Raycaster is now the default render path. The
+  // Phase 2 TopDown view is disabled (TopDown.ENABLED = false) but LEFT LOADED —
+  // it stays a debug toggle, not deleted. Flip ENABLED back to true (and point
+  // Game.view at TopDown) to bring the top-down map back for debugging.
   Input.attach(game);
   Game.input = Input;
-  Game.view = TopDown.ENABLED ? TopDown : null;
+  TopDown.ENABLED = false;
+  Game.view = Raycaster;
 
   Game.attach();
 

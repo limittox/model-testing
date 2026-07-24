@@ -57,7 +57,15 @@
                               TopDown.ENABLED; PHASE 3 REPLACES IT BY RE-POINTING
                               THAT ONE ASSIGNMENT at the raycaster. Needs Level +
                               Player + Framebuffer.
-     10. js/game.js         — defines Game: the requestAnimationFrame loop with
+     10. js/raycaster.js    — defines Raycaster: the Phase 3 first-person software
+                              raycaster (Pass A whole-frame fill + Pass B DDA wall
+                              cast with PERPENDICULAR distance, the per-column
+                              z-buffer write, and solid-shaded wall columns).
+                              render() writes Framebuffer.buf32 + zBuffer and does
+                              NOT present. Attached through the Game.view seam in
+                              place of TopDown. Reads CONFIG/Framebuffer/Level/
+                              Player; read by nothing before game.js.
+     11. js/game.js         — defines Game: the requestAnimationFrame loop with
                               the CLAMPED delta-time (CONFIG.DT_MAX), the refocus
                               resync, and the two seams. Game.input (an intent
                               source) and Game.view (a buf32 writer that does NOT
@@ -66,14 +74,15 @@
                               lives in CONFIG.DT_MAX; the single Framebuffer
                               present() lives in Game.render() so the once-per-
                               frame blit contract survives every view swap.
-     11. js/main.js         — entry point (needs CONFIG + Framebuffer + assets +
-                              Level + Player + Input + TopDown + Game): builds the
-                              level, spawns the player, wires Game.input = Input
-                              and Game.view = TopDown, attaches resync triggers,
+     12. js/main.js         — entry point (needs CONFIG + Framebuffer + assets +
+                              Level + Player + Input + TopDown + Raycaster + Game):
+                              builds the level, spawns the player, wires
+                              Game.input = Input and Game.view = Raycaster (with
+                              TopDown.ENABLED = false), attaches resync triggers,
                               starts the loop.
       i.e. config -> framebuffer -> textures -> sprites -> preview -> level ->
-      player -> input -> topdown -> game -> main. Order encodes the dependency
-      graph: later files extend earlier globals.
+      player -> input -> topdown -> raycaster -> game -> main. Order encodes the
+      dependency graph: later files extend earlier globals.
 
       NOT LOADED HERE: everything under tools/. Those are Node-only .cjs
       verification harnesses; the browser never sees them, which is why the
@@ -104,6 +113,7 @@
   <script src="js/player.js"></script>
   <script src="js/input.js"></script>
   <script src="js/topdown.js"></script>
+  <script src="js/raycaster.js"></script>
   <script src="js/game.js"></script>
   <script src="js/main.js"></script>
 </body>
