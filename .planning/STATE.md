@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 03
 current_phase_name: core-renderer-walls-floors-ceilings
 status: executing
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-07-24T14:02:59.614Z"
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-07-24T14:20:24.840Z"
 last_activity: 2026-07-24
 last_activity_desc: Phase 03 execution started
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 8
-  completed_plans: 6
+  completed_plans: 7
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-07-23)
 ## Current Position
 
 Phase: 03 (core-renderer-walls-floors-ceilings) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-24 — Phase 03 execution started
 
-Progress: [████████░░] 75%
+Progress: [█████████░] 88%
 
 ## Performance Metrics
 
@@ -64,6 +64,7 @@ Progress: [████████░░] 75%
 | Phase 02 P02 | 12min | 3 tasks | 6 files |
 | Phase 02 P03 | 16min | 3 tasks | 6 files |
 | Phase 03 P01 | 35min | 2 tasks | 7 files |
+| Phase 03 P02 | 10min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -92,6 +93,8 @@ Recent decisions affecting current work:
 - [Phase ?]: The top-down view writes buf32 and never presents; Phase 3 swaps in the raycaster by flipping TopDown.ENABLED and re-pointing Game.view alone
 - [Phase ?]: 03-01: Raycaster uses perpendicular wall distance (sideDist-deltaDist) + 1e30 axis-ray sentinel + per-column zBuffer; three-pass skeleton (Pass A fills frame, Pass B overwrites walls)
 - [Phase ?]: 03-01: y-side depth cue OR-backs opaque alpha (0xFF000000 | ((color>>1)&0x7F7F7F)) — bare Lodev mask drops alpha in ARGB packing (Pitfall 6 fix)
+- [Phase ?]: 03-02: fixed-point [0,256] shade computed once per wall column; texel = one packed read + (chan*shade)>>8 + packed write
+- [Phase ?]: 03-02: removed tracer solid WALL_COLORS table — wall id now selects a Textures.map texture, sampled with side-flipped texX + unclamped texPos
 
 ### Pending Todos
 
@@ -116,6 +119,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-24T14:02:44.566Z
-Stopped at: Completed 03-01-PLAN.md
+Last session: 2026-07-24T14:20:13.787Z
+Stopped at: Completed 03-02-PLAN.md
 Resume file: None

@@ -75,12 +75,12 @@ Plans:
   3. Surfaces darken with distance so far geometry fades for atmosphere.
   4. The wall pass produces a per-column depth (z) buffer, verifiable as correct sprite occlusion once entities exist.
 
-**Plans**: 1/3 plans executed
+**Plans**: 2/3 plans executed
 
 Plans:
 
 - [x] 03-01-PLAN.md — Tracer: Raycaster view + DDA wall pass (perpendicular distance, no fisheye), per-column `zBuffer[x]`, solid-shaded columns, `Game.view` swap + CONFIG constants + wiring, and the falsifiable render harness (REND-01, REND-06)
-- [ ] 03-02-PLAN.md — Distance shading/fog + constant y-side darken, then wall texture-column sampling with side-based flips + seam/index masking (REND-04, REND-02)
+- [x] 03-02-PLAN.md — Distance shading/fog + constant y-side darken, then wall texture-column sampling with side-based flips + seam/index masking (REND-04, REND-02)
 - [ ] 03-03-PLAN.md — Row-based floor/ceiling casting behind `CONFIG.FLOOR_CAST` + a real distance-shaded flat-color fallback path (REND-03)
 
 ### Phase 4: Sprite Rendering & Entities
@@ -156,7 +156,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 |-------|----------------|--------|-----------|
 | 1. Scaffold, Config & Procedural Assets | 2/2 | In Progress|  |
 | 2. Level, Player Movement & Input | 3/3 | In Progress|  |
-| 3. Core Renderer — Walls, Floors & Ceilings | 1/3 | In Progress|  |
+| 3. Core Renderer — Walls, Floors & Ceilings | 2/3 | In Progress|  |
 | 4. Sprite Rendering & Entities | 0/2 | Not started | - |
 | 5. Enemy AI, Weapons & Pickups | 0/4 | Not started | - |
 | 6. HUD, Audio & Game-State Machine | 0/3 | Not started | - |
