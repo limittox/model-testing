@@ -54,11 +54,11 @@ Plans:
   3. The player cannot pass through walls and slides along them — no tunneling even at run speed.
   4. A hand-designed grid level with rooms, corridors, and multiple wall types is loaded, and the player's position and facing are verifiable on a top-down view.
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 
 Plans:
 
-- [ ] 02-01-PLAN.md — Grid level map: wall/texture-type IDs, forced-solid border + row normalization, materialized wall-ID→texture table, spawn/marker tables, grid line-of-sight helper, and the reusable headless harness bootstrap (wave 1)
+- [x] 02-01-PLAN.md — Grid level map: wall/texture-type IDs, forced-solid border + row normalization, materialized wall-ID→texture table, spawn/marker tables, grid line-of-sight helper, and the reusable headless harness bootstrap (wave 1)
 - [ ] 02-02-PLAN.md — Player pose (`{x,y,dirX,dirY,planeX,planeY}`, one rotation matrix for dir+plane) + per-axis radius collision that slides; `requestAnimationFrame` loop with clamped delta-time and the input/view seams (wave 2)
 - [ ] 02-03-PLAN.md — Tracer: pointer-lock mouse-look + arrow-key turn fallback + intent-only key-state map, and the flag-isolated top-down verification view drawn through the Phase 1 framebuffer (wave 3)
 
@@ -155,7 +155,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Scaffold, Config & Procedural Assets | 2/2 | In Progress|  |
-| 2. Level, Player Movement & Input | 0/3 | Not started | - |
+| 2. Level, Player Movement & Input | 1/3 | In Progress|  |
 | 3. Core Renderer — Walls, Floors & Ceilings | 0/3 | Not started | - |
 | 4. Sprite Rendering & Entities | 0/2 | Not started | - |
 | 5. Enemy AI, Weapons & Pickups | 0/4 | Not started | - |

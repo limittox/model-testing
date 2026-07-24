@@ -72,7 +72,7 @@ All code lives under `Doom/Claude Opus 4.8/GSD/`.
 
 ### Level & Progression
 
-- [ ] **LVL-01**: A hand-designed grid level with rooms, corridors, and multiple wall/texture types
+- [x] **LVL-01**: A hand-designed grid level with rooms, corridors, and multiple wall/texture types
 - [ ] **LVL-02**: The level is populated with enemy spawns and pickups at designed positions
 - [ ] **LVL-03**: The level has a reachable, visibly-marked exit
 - [ ] **LVL-04**: Reaching the exit triggers a victory state showing stats (kills, time)
@@ -128,7 +128,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | CTRL-02 | Phase 2 | Pending |
 | CTRL-03 | Phase 2 | Pending |
 | CTRL-04 | Phase 2 | Pending |
-| LVL-01 | Phase 2 | Pending |
+| LVL-01 | Phase 2 | Complete |
 | REND-01 | Phase 3 | Pending |
 | REND-02 | Phase 3 | Pending |
 | REND-03 | Phase 3 | Pending |
