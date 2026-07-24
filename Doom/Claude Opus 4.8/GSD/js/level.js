@@ -402,6 +402,70 @@ var Level = {
   };
 
   // ===========================================================================
+  // LINE OF SIGHT — a grid DDA march in WORLD coordinates.
+  //
+  // Returns true when no solid cell lies STRICTLY BETWEEN the two points: the
+  // two endpoint cells themselves are never tested, so a shot fired from inside
+  // a doorway at a target standing in another doorway still connects.
+  //
+  // This is deliberately the same traversal shape Phase 3's wall pass and Phase
+  // 5's hitscan will use — one technique learned once:
+  //   deltaDist  = |1 / rayDir| per axis  (how far along the ray one whole cell
+  //                of that axis costs). A ZERO direction component substitutes a
+  //                large FINITE constant instead of relying on Infinity
+  //                arithmetic, which would produce NaN when multiplied by a zero
+  //                fractional offset.
+  //   sideDist   = distance from the start point to the first grid line on each
+  //                axis, seeded from the fractional position inside the start
+  //                cell.
+  //   step       = advance whichever axis has the smaller sideDist.
+  //
+  // TERMINATION IS STRUCTURAL (threat T-02-03): the march is capped at
+  // WIDTH + HEIGHT + 2 steps — more than the longest possible grid traversal —
+  // and returns false if the cap is ever exhausted, so no input can spin it.
+  // ===========================================================================
+
+  // Stand-in for 1/0. Large enough that a zero-direction axis is never the
+  // smaller sideDist, finite enough that 0 * BIG is 0 rather than NaN.
+  var LOS_BIG = 1e30;
+
+  Level.lineOfSight = function (x0, y0, x1, y1) {
+    var mapX = Math.floor(x0);
+    var mapY = Math.floor(y0);
+    var destX = Math.floor(x1);
+    var destY = Math.floor(y1);
+
+    // Degenerate case: both points inside the same cell. Nothing can be strictly
+    // between them.
+    if (mapX === destX && mapY === destY) return true;
+
+    var rayX = x1 - x0;
+    var rayY = y1 - y0;
+
+    var deltaX = (rayX === 0) ? LOS_BIG : Math.abs(1 / rayX);
+    var deltaY = (rayY === 0) ? LOS_BIG : Math.abs(1 / rayY);
+
+    var stepX, stepY, sideX, sideY;
+    if (rayX < 0) { stepX = -1; sideX = (x0 - mapX) * deltaX; }
+    else { stepX = 1; sideX = (mapX + 1 - x0) * deltaX; }
+    if (rayY < 0) { stepY = -1; sideY = (y0 - mapY) * deltaY; }
+    else { stepY = 1; sideY = (mapY + 1 - y0) * deltaY; }
+
+    var cap = Level.WIDTH + Level.HEIGHT + 2;
+    for (var i = 0; i < cap; i++) {
+      if (sideX < sideY) { sideX += deltaX; mapX += stepX; }
+      else { sideY += deltaY; mapY += stepY; }
+
+      // Reaching the destination cell wins BEFORE the solidity test, which is
+      // what makes "strictly between" true even when the target stands in a
+      // doorway.
+      if (mapX === destX && mapY === destY) return true;
+      if (Level.isSolid(mapX, mapY)) return false;
+    }
+    return false;
+  };
+
+  // ===========================================================================
   // WALL-ID -> TEXTURE RESOLUTION (D-03). Textures.map is read lazily so this
   // file carries no load-order dependency on textures.js.
   // ===========================================================================
