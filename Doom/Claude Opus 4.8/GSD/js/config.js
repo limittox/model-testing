@@ -40,9 +40,17 @@ var CONFIG = {
   // Fixed low width; height is DERIVED from the viewport aspect and clamped to
   // [MIN_H, MAX_H] by Framebuffer.resize(). Keeping width fixed makes per-frame
   // cost independent of window size.
+  //
+  // The band MUST be wide enough that every realistic window aspect passes
+  // through UNCLAMPED — a clamp that bites changes the rendered aspect and
+  // stretches the world anamorphically (Phase 1 verification W-1). Derived
+  // heights at 480 wide: 21:9 -> 206, 16:9 -> 270, 16:10 -> 300, 4:3 -> 360.
+  // The band below covers all of them; it now only bites on degenerate
+  // (extremely tall/short) windows, where bounding cost matters more than
+  // aspect fidelity. Widened from [240,300], which stretched 4:3 by 20%.
   INTERNAL_W: 480,
-  MIN_H: 240,
-  MAX_H: 300,
+  MIN_H: 200,
+  MAX_H: 480,
 
   // --- Camera / renderer tuning (consumed by later phases) ---
   // FOV_PLANE: camera-plane half-length; ~0.66 gives the classic ~66deg FOV.
