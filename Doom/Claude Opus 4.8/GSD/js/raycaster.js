@@ -22,9 +22,10 @@
  *            the row-based floor/ceiling cast + shaded flat-colour fallback; the
  *            skeleton (Pass A always fills first) does not change.
  *   PASS B — the per-column DDA wall cast: PERPENDICULAR wall distance (REND-01,
- *            kills fisheye), the per-column z-buffer write (REND-06), and a
- *            SOLID base colour per wall id with a one-op y-side depth cue. 03-02
- *            replaces that solid fill with the sampled, fog-shaded texel.
+ *            kills fisheye), the per-column z-buffer write (REND-06), and (03-02)
+ *            per-column TEXTURE SAMPLING (REND-02, side-flipped texX + unclamped
+ *            texPos + power-of-two masking) shaded through the distance-fog +
+ *            y-side-darken path (REND-04). The tracer's solid base colour is gone.
  *
  * The DDA mirrors Level.lineOfSight exactly: a 1e30 finite sentinel for a zero
  * rayDir component (0*Infinity would be NaN), and a WIDTH+HEIGHT+2 iteration cap so
@@ -39,20 +40,9 @@ var Raycaster = {
   // direction axis is never the smaller sideDist, finite enough that 0*BIG === 0.
   BIG: 1e30,
 
-  // SOLID base colour per wall ID, INDEX-ALIGNED to Level.WALL_TEXTURES
-  // ([null, 'stone', 'brick', 'tech', 'door', 'exit']). Index 0 is unused (a wall
-  // is always id >= 1). 03-02 replaces this table lookup with a texel sample.
-  // Chosen distinct from the TopDown palette so a mis-wire is obvious in-browser.
-  WALL_COLORS: [
-    0,                        // 0 — no wall
-    packRGBA(140, 140, 150),  // 1 stone — grey
-    packRGBA(170, 84, 60),    // 2 brick — red-brown
-    packRGBA(84, 132, 188),   // 3 tech  — steel-blue
-    packRGBA(214, 168, 56),   // 4 door  — amber
-    packRGBA(72, 210, 110)    // 5 exit  — green
-  ],
-  // Fail-safe when Level.cellAt returns an unexpected id (0 or out of range).
-  WALL_FALLBACK: packRGBA(120, 120, 128)
+  // 03-02 Task 2 replaced the tracer's SOLID base-colour-per-id table with real
+  // per-column texture sampling (Level.textureFor -> Textures.map 64x64 buf32).
+  // The wall id now selects a texture, not a flat colour.
 };
 
 (function () {
@@ -108,8 +98,6 @@ var Raycaster = {
 
     var EPS = Raycaster.EPS;
     var BIG = Raycaster.BIG;
-    var wallColors = Raycaster.WALL_COLORS;
-    var wallFallback = Raycaster.WALL_FALLBACK;
     // Shade helpers hoisted to locals once per frame (no per-column property read,
     // no per-pixel allocation). REND-04 shading path — see the helper block above.
     var shadeFactor = Raycaster.shadeFactor;
@@ -171,20 +159,46 @@ var Raycaster = {
       var clampedStart = drawStart < 0 ? 0 : drawStart;
       var clampedEnd = drawEnd > H ? H : drawEnd;   // exclusive loop bound
 
-      // Solid base colour for the hit wall id (03-02 Task 2 swaps in the sampled
-      // texel; the shade path below is identical either way).
+      // ---- TEXTURE SAMPLING (REND-02) — RESEARCH Pattern 2, CONTEXT decision 3.
+      // Resolve the texture ONCE per column (before the row loop). The fail-safe
+      // is Textures.map.stone; Level.validateTextures() guarantees no wall id is
+      // missing, so the branch is defence, not a routine path.
       var id = Level.cellAt(mapX, mapY);
-      var color = (id >= 1 && id < wallColors.length) ? wallColors[id] : wallFallback;
+      var tex = Level.textureFor(id);
+      if (!tex) tex = Textures.map.stone;
+      var texBuf = tex.buf32;
+      var TEX = tex.width;                 // 64, a power of two
+      var MASK = TEX - 1;                   // 63 — mask instead of modulo
 
-      // REND-04: compute the fog+side shade ONCE per column (perpWall is constant
-      // for the whole column) and apply it to the base colour. This full fog curve
-      // + MIN_SHADE floor + constant SIDE_SHADE supersedes the tracer's crude
-      // one-op (color>>1)&0x7F7F7F y-side darken.
+      // REND-04: fog+side shade computed ONCE per column (perpWall is constant for
+      // the whole column); every texel is one packed read + shade + packed write.
       var colShade = shadeFactor(perpWall, side === 1);
-      color = applyShade(color, colShade);
+
+      // Horizontal: fractional hit position along the wall face (the axis OTHER
+      // than `side`), then the texture column with BOTH side-based flips so the
+      // asymmetric exit arrow reads with one consistent handedness (no mirror at
+      // corners). texX &= MASK is belt-and-braces: wallX*TEX can reach TEX at a
+      // grid boundary (threat T-03-05).
+      var wallX = (side === 0) ? (py + perpWall * rayDirY)
+                               : (px + perpWall * rayDirX);
+      wallX -= Math.floor(wallX);
+      var texX = Math.floor(wallX * TEX);
+      if (side === 0 && rayDirX > 0) texX = TEX - texX - 1;
+      if (side === 1 && rayDirY < 0) texX = TEX - texX - 1;
+      texX &= MASK;
+
+      // Vertical: fixed-point step referenced to the UNCLAMPED wall span, so a
+      // tall near wall (drawStart < 0) samples the correct visible slice instead
+      // of swimming. If the top was clipped, advance texPos over the hidden rows
+      // first — do NOT re-anchor to clampedStart.
+      var step = TEX / lineHeight;
+      var texPos = (drawStart - horizon + (lineHeight >> 1)) * step;
+      if (clampedStart > drawStart) texPos += (clampedStart - drawStart) * step;
 
       for (var yy = clampedStart; yy < clampedEnd; yy++) {
-        buf[yy * W + x] = color;
+        var texY = (texPos | 0) & MASK;    // | 0 = fast floor for non-negative
+        texPos += step;
+        buf[yy * W + x] = applyShade(texBuf[(texY << 6) + texX], colShade);
       }
     }
   };

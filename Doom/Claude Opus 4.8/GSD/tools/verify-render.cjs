@@ -47,6 +47,7 @@ const TopDown = s.TopDown;
 const Raycaster = s.Raycaster;
 const Game = s.Game;
 const Framebuffer = s.Framebuffer;
+const Textures = s.Textures;
 const raf = h.raf;
 
 // ===========================================================================
@@ -115,6 +116,84 @@ function poseOf() {
     px: Player.x, py: Player.y,
     dirX: Player.dirX, dirY: Player.dirY,
     planeX: Player.planeX, planeY: Player.planeY
+  };
+}
+
+// ===========================================================================
+// INDEPENDENT wall-texel recompute (REND-02). A SECOND, from-the-formula copy of
+// the renderer's per-column texture math (NOT a call into Raycaster), so a shared
+// bug cannot hide. Reads the LIVE Player pose. For screen row `yRow` (which must
+// lie in the wall span) it reproduces: side, perpWall, the side-flipped texX (and
+// the UN-flipped texXnoflip as a discriminator), the texPos-accumulated texY, and
+// the fully shaded expected pixel. Its texPos accumulation is iterative — byte-for-
+// byte the renderer's — so `expected` can be compared with === (no ULP drift).
+// ===========================================================================
+function expectedWallPixel(W, H, x, yRow) {
+  const EPS = 1e-4, BIG = 1e30;
+  const horizon = H >> 1;
+  const px = Player.x, py = Player.y;
+  const dirX = Player.dirX, dirY = Player.dirY;
+  const planeX = Player.planeX, planeY = Player.planeY;
+
+  const cameraX = 2 * x / W - 1;
+  const rayDirX = dirX + planeX * cameraX;
+  const rayDirY = dirY + planeY * cameraX;
+
+  let mapX = Math.floor(px), mapY = Math.floor(py);
+  const deltaDistX = (rayDirX === 0) ? BIG : Math.abs(1 / rayDirX);
+  const deltaDistY = (rayDirY === 0) ? BIG : Math.abs(1 / rayDirY);
+
+  let stepX, stepY, sideDistX, sideDistY;
+  if (rayDirX < 0) { stepX = -1; sideDistX = (px - mapX) * deltaDistX; }
+  else { stepX = 1; sideDistX = (mapX + 1 - px) * deltaDistX; }
+  if (rayDirY < 0) { stepY = -1; sideDistY = (py - mapY) * deltaDistY; }
+  else { stepY = 1; sideDistY = (mapY + 1 - py) * deltaDistY; }
+
+  let side = 0, guard = Level.WIDTH + Level.HEIGHT + 2;
+  while (guard-- > 0) {
+    if (sideDistX < sideDistY) { sideDistX += deltaDistX; mapX += stepX; side = 0; }
+    else { sideDistY += deltaDistY; mapY += stepY; side = 1; }
+    if (Level.isSolid(mapX, mapY)) break;
+  }
+
+  let perpWall = (side === 0) ? (sideDistX - deltaDistX) : (sideDistY - deltaDistY);
+  if (!(perpWall > EPS)) perpWall = EPS;
+
+  const lineHeight = Math.floor(H / perpWall);
+  const drawStart = -(lineHeight >> 1) + horizon;
+  const drawEnd = (lineHeight >> 1) + horizon;
+  const clampedStart = drawStart < 0 ? 0 : drawStart;
+  const clampedEnd = drawEnd > H ? H : drawEnd;
+
+  const id = Level.cellAt(mapX, mapY);
+  let tex = Level.textureFor(id);
+  if (!tex) tex = Textures.map.stone;
+  const TEX = tex.width, MASK = TEX - 1;
+
+  let wallX = (side === 0) ? (py + perpWall * rayDirY) : (px + perpWall * rayDirX);
+  wallX -= Math.floor(wallX);
+  let texX = Math.floor(wallX * TEX);
+  const texXnoflip = texX & MASK;
+  if (side === 0 && rayDirX > 0) texX = TEX - texX - 1;
+  if (side === 1 && rayDirY < 0) texX = TEX - texX - 1;
+  texX &= MASK;
+
+  const step = TEX / lineHeight;
+  let texPos = (drawStart - horizon + (lineHeight >> 1)) * step;
+  if (clampedStart > drawStart) texPos += (clampedStart - drawStart) * step;
+
+  let texY = (texPos | 0) & MASK;
+  for (let y = clampedStart; y < clampedEnd && y < yRow; y++) {
+    texPos += step;
+    texY = (texPos | 0) & MASK;
+  }
+
+  const shade = Raycaster.shadeFactor(perpWall, side === 1);
+  const texel = tex.buf32[(texY << 6) + texX];
+  return {
+    side, perpWall, id, tex, TEX, MASK,
+    texX, texXnoflip, texY, lineHeight, clampedStart, clampedEnd,
+    shade, expected: (Raycaster.applyShade(texel, shade) >>> 0)
   };
 }
 
@@ -435,15 +514,11 @@ function poseOf() {
   const nearLum = (pxNear & 0xFF) + ((pxNear >> 8) & 0xFF) + ((pxNear >> 16) & 0xFF);
 
   // Exact-pixel check: the centre column hits the east wall face on an x-step
-  // (side 0), so the shaded solid base colour must reproduce exactly.
-  const ref = referenceDDA(poseOf(), W);
-  const sideC = ref.side[xc];
-  const idC = Level.cellAt(ref.hx[xc], ref.hy[xc]);
-  const baseC = (idC >= 1 && idC < Raycaster.WALL_COLORS.length)
-    ? Raycaster.WALL_COLORS[idC] : Raycaster.WALL_FALLBACK;
-  const expectPx = applyShade(baseC, shadeFactor(zNear, sideC === 1));
-  assert(pxNear === expectPx,
-    '9i. REND-04: a rendered wall pixel === applyShade(base, shadeFactor(perpWall, side==1)) exactly');
+  // (side 0). The rendered pixel must equal the independently-recomputed shaded
+  // texel exactly — tying the render path to shadeFactor/applyShade + the texture.
+  const smpNear = expectedWallPixel(W, H, xc, horizon);
+  assert(pxNear === smpNear.expected,
+    '9i. REND-04: a rendered wall pixel === applyShade(texel, shadeFactor(perpWall, side==1)) exactly');
 
   // Far: step back one whole cell along -x (still open floor west of the face);
   // the same face is now farther, so the same column must be dimmer.
@@ -460,6 +535,79 @@ function poseOf() {
   assert(nearLum > farLum,
     '9k. REND-04: the SAME wall face is brighter up close than far away (near ' +
     nearLum + ' > far ' + farLum + ') — distance fog is applied');
+})();
+
+// ===========================================================================
+// 10. REND-02 — TEXTURE-COLUMN SAMPLING with side flips + seam masking, proven
+//     against the ASYMMETRIC exit texture (makeExit's right-pointing arrow — the
+//     strongest discriminator for a dropped texX flip). The wall face is found by
+//     a deterministic row-major first-match scan (a floor cell whose +x neighbour
+//     is an exit wall, id 5), mirroring Level's own landmark-derivation idiom
+//     rather than a hardcoded coordinate.
+// ===========================================================================
+(function () {
+  let ex = null;
+  for (let my = 0; my < Level.HEIGHT && !ex; my++) {
+    for (let mx = 0; mx < Level.WIDTH; mx++) {
+      if (Level.cellAt(mx, my) === 0 && Level.cellAt(mx + 1, my) === 5) {
+        ex = { mx: mx, my: my, wf: mx + 1 };
+        break;
+      }
+    }
+  }
+  assert(ex !== null,
+    '10a. REND-02: a floor cell facing an exit wall (id 5) exists by row-major scan');
+
+  // Stand at that floor cell's centre, look straight +x at the exit face.
+  Player.x = ex.mx + 0.5; Player.y = ex.my + 0.5;
+  Player.setDir(1, 0);
+  Raycaster.render();
+
+  const W = Framebuffer.width, H = Framebuffer.height;
+  const horizon = H >> 1, xc = W >> 1;
+
+  const smp = expectedWallPixel(W, H, xc, horizon);
+  assert(smp.id === 5,
+    '10b. REND-02: the centre column hits the exit wall (id 5, asymmetric arrow)');
+  assert(smp.texX >= 0 && smp.texX <= smp.MASK && smp.texY >= 0 && smp.texY <= smp.MASK,
+    '10c. REND-02: texX/texY stay within [0,' + smp.MASK + '] (T-03-05 index-bounds)');
+
+  const rendered = Framebuffer.buf32[horizon * W + xc] >>> 0;
+  assert(rendered === smp.expected,
+    '10d. REND-02: rendered exit pixel === applyShade(tex.buf32[(texY<<6)+texX], shade) with BOTH flips');
+
+  // The side==0 && rayDirX>0 flip is active here: the flipped column differs from
+  // the unflipped one, so a dropped flip would sample a different (mirrored) column.
+  assert(smp.texX !== smp.texXnoflip,
+    '10e. REND-02: the side-based texX flip changes the sampled column (' +
+    smp.texXnoflip + ' -> ' + smp.texX + ') — a dropped flip mirrors the arrow');
+
+  // Find a visible row where the FLIPPED vs UN-FLIPPED shaded texels genuinely
+  // differ on the asymmetric arrow, and prove the renderer used the flipped one.
+  const tb = smp.tex.buf32;
+  let proven = false;
+  for (let y = smp.clampedStart; y < smp.clampedEnd; y++) {
+    const row = expectedWallPixel(W, H, xc, y);
+    const flipShaded = Raycaster.applyShade(tb[(row.texY << 6) + row.texX], row.shade) >>> 0;
+    const noflipShaded = Raycaster.applyShade(tb[(row.texY << 6) + row.texXnoflip], row.shade) >>> 0;
+    if (flipShaded === noflipShaded) continue;   // this row can't discriminate
+    const px = Framebuffer.buf32[y * W + xc] >>> 0;
+    assert(px === flipShaded,
+      '10f. REND-02: on an asymmetric-arrow row the rendered pixel matches the FLIPPED texel, ' +
+      'not the mirrored one (y=' + y + ', texX ' + row.texX + ' vs noflip ' + row.texXnoflip + ')');
+    proven = true;
+    break;
+  }
+  assert(proven,
+    '10g. REND-02: at least one visible row discriminates the flip on the exit arrow');
+
+  // Tall-near-wall / unclamped-texPos guard: at this near face the wall overspills
+  // the screen (drawStart < 0, so the span is clamped to the whole height). The
+  // texPos referenced to the UNCLAMPED span (not clampedStart) is what keeps the
+  // slice correct — assert the span is genuinely clamped so this case is exercised.
+  assert(smp.clampedStart === 0 && smp.clampedEnd === H && smp.lineHeight > H,
+    '10h. REND-02: the near exit wall overspills the screen (lineHeight ' + smp.lineHeight +
+    ' > H ' + H + '), exercising the unclamped-texPos path');
 })();
 
 finish('ALL_RENDER_CONTRACTS_PASS');
