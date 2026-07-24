@@ -198,6 +198,46 @@ function expectedWallPixel(W, H, x, yRow) {
 }
 
 // ===========================================================================
+// INDEPENDENT floor/ceiling recompute (REND-03). A SECOND, from-the-formula copy
+// of Pass A's row-cast math (NOT a call into Raycaster). It accumulates floorX/
+// floorY ITERATIVELY per column — byte-for-byte the renderer's addition order — so
+// `floorExpected`/`ceilExpected` compare with === (no ULP drift). Reads the LIVE
+// Player pose. For loop-row `loopY` (a FLOOR screen row in [horizon, H)) it returns
+// the floor pixel produced at screen row `loopY` and the mirrored ceiling pixel at
+// screen row H-1-loopY, plus the shared per-row shade/distance.
+// ===========================================================================
+function expectedFloorRow(W, H, x, loopY) {
+  const horizon = H >> 1;
+  const px = Player.x, py = Player.y;
+  const dirX = Player.dirX, dirY = Player.dirY;
+  const planeX = Player.planeX, planeY = Player.planeY;
+  const rayDirX0 = dirX - planeX, rayDirY0 = dirY - planeY;
+  const rayDirX1 = dirX + planeX, rayDirY1 = dirY + planeY;
+  const posZ = CONFIG.CAMERA_Z * H;
+  const TEX = CONFIG.TEX_SIZE, MASK = TEX - 1;
+
+  let p = loopY - horizon;
+  if (p < 1) p = 1;                       // horizon row clamp, mirrors the renderer
+  const rowDistance = posZ / p;
+  const floorStepX = rowDistance * (rayDirX1 - rayDirX0) / W;
+  const floorStepY = rowDistance * (rayDirY1 - rayDirY0) / W;
+  let floorX = px + rowDistance * rayDirX0;
+  let floorY = py + rowDistance * rayDirY0;
+  for (let i = 0; i < x; i++) { floorX += floorStepX; floorY += floorStepY; }  // iterative → byte-exact
+  const tx = ((floorX * TEX) | 0) & MASK;
+  const ty = ((floorY * TEX) | 0) & MASK;
+  const ti = (ty << 6) + tx;
+  const rowShade = Raycaster.shadeFactor(rowDistance, false);
+  return {
+    rowDistance, rowShade,
+    floorScreenY: loopY,
+    ceilScreenY: H - 1 - loopY,
+    floorExpected: (Raycaster.applyShade(Textures.map.floor.buf32[ti], rowShade) >>> 0),
+    ceilExpected: (Raycaster.applyShade(Textures.map.ceiling.buf32[ti], rowShade) >>> 0)
+  };
+}
+
+// ===========================================================================
 // 0. BOOT WIRED THE VIEW SWAP.
 // ===========================================================================
 (function () {
@@ -608,6 +648,109 @@ function expectedWallPixel(W, H, x, yRow) {
   assert(smp.clampedStart === 0 && smp.clampedEnd === H && smp.lineHeight > H,
     '10h. REND-02: the near exit wall overspills the screen (lineHeight ' + smp.lineHeight +
     ' > H ' + H + '), exercising the unclamped-texPos path');
+})();
+
+// ===========================================================================
+// 11. REND-03 — ROW-BASED FLOOR/CEILING CAST (CONFIG.FLOOR_CAST true, the ship
+//     path). Whole frame covered (horizon row included, no CLEAR/sentinel left); a
+//     below-horizon non-wall pixel derives from Textures.map.floor and an above-
+//     horizon pixel from Textures.map.ceiling (== applyShade(texel, rowShade)); and
+//     rows darken monotonically toward the horizon.
+// ===========================================================================
+(function () {
+  const W = Framebuffer.width, H = Framebuffer.height;
+  const horizon = H >> 1;
+  // A DISTINCT seeded sentinel is the falsifiable coverage probe (same rationale as
+  // section 3): a real "no background left" test cannot use CLEAR_COLOR, because a
+  // legitimately-shaded floor/ceiling/wall texel can coincidentally equal it — the
+  // sentinel is a value the renderer never writes, so surviving it means a true gap.
+  const SENTINEL = 0x0BADF00D >>> 0;
+
+  // Stand in derived open space so some columns see a wall far enough that the top
+  // and bottom screen rows are ceiling/floor rather than wall.
+  const o = Level.LANDMARKS.openCell;
+  Player.x = o.x; Player.y = o.y;
+  Player.setDir(1, 0);
+
+  assert(CONFIG.FLOOR_CAST === true,
+    '11a. REND-03: FLOOR_CAST defaults to true (textured cast is the ship path)');
+
+  Framebuffer.buf32.fill(SENTINEL);
+  Raycaster.render();
+
+  // Whole frame covered (horizon row included) — no seeded sentinel survives.
+  let leftover = 0;
+  for (let i = 0; i < Framebuffer.buf32.length; i++) {
+    if ((Framebuffer.buf32[i] >>> 0) === SENTINEL) leftover++;
+  }
+  assert(leftover === 0,
+    '11b. REND-03: the textured cast fills every pixel, horizon row included — no seeded sentinel survives (' + leftover + ')');
+
+  // The farthest-wall column has the shortest stripe, so its span frees the top
+  // (ceiling) and bottom (floor) rows for probing.
+  let col = 0, maxZ = -Infinity;
+  for (let x = 0; x < W; x++) { const z = Framebuffer.zBuffer[x]; if (z > maxZ) { maxZ = z; col = x; } }
+  const wsp = expectedWallPixel(W, H, col, horizon);
+  assert(wsp.clampedStart >= 1 && wsp.clampedEnd <= H - 1,
+    '11d. REND-03: the farthest-wall column frees the top/bottom rows (span [' +
+    wsp.clampedStart + ',' + wsp.clampedEnd + ') within (0,' + (H - 1) + '])');
+
+  // loopY = H-1 => floor screen row H-1 and ceiling screen row 0, both non-wall.
+  const fr = expectedFloorRow(W, H, col, H - 1);
+  const floorPix = Framebuffer.buf32[fr.floorScreenY * W + col] >>> 0;
+  const ceilPix = Framebuffer.buf32[fr.ceilScreenY * W + col] >>> 0;
+  assert(floorPix === fr.floorExpected,
+    '11e. REND-03: a below-horizon floor pixel === applyShade(Textures.map.floor texel, rowShade) exactly');
+  assert(ceilPix === fr.ceilExpected,
+    '11f. REND-03: an above-horizon ceiling pixel === applyShade(Textures.map.ceiling texel, rowShade) exactly');
+  assert(Textures.map.floor.buf32 !== Textures.map.ceiling.buf32 && fr.floorExpected !== fr.ceilExpected,
+    '11g. REND-03: floor and ceiling sample DISTINCT texture buffers (separable in the frame)');
+
+  // Monotonic darkening toward the horizon: the per-row rowShade the renderer uses
+  // (proven applied by 11e/11f) is non-increasing as the floor row nears the horizon.
+  let mono = true, prev = 257;
+  for (let ly = H - 1; ly >= horizon + 1; ly--) {
+    const s = expectedFloorRow(W, H, 0, ly).rowShade;
+    if (s > prev) { mono = false; break; }
+    prev = s;
+  }
+  assert(mono, '11h. REND-03: rows darken monotonically toward the horizon in textured-cast mode');
+})();
+
+// ===========================================================================
+// 12. REND-03 WHOLE-FRAME COVERAGE at ODD **and** EVEN internal height (harness
+//     hardening W1/W2). The ceiling mirror must independently reach rows
+//     [0, horizon-1] with NO row skipped when H is odd (horizon = H>>1 truncates).
+//     Boot fresh sandboxes at both parities, seed a sentinel, render the textured
+//     cast, and assert every row is written.
+// ===========================================================================
+(function () {
+  const SENTINEL = 0x0BADF00D >>> 0;
+  const cases = [
+    { w: 1000, h: 419, oddExpected: true, label: '12a odd-H' },   // -> H = 201 (odd), horizon 100
+    { w: 1280, h: 720, oddExpected: false, label: '12b even-H' }  // -> H = 270 (even), horizon 135
+  ];
+  for (const c of cases) {
+    const hb = boot({ innerWidth: c.w, innerHeight: c.h });
+    hb.fireLoad();
+    const sb = hb.sandbox;
+    const FB = sb.Framebuffer, RC = sb.Raycaster, LV = sb.Level;
+    const H = FB.height;
+    assert((H % 2 === 1) === c.oddExpected,
+      c.label + '1: derived internal height parity is as expected (H=' + H + ')');
+
+    const o = LV.LANDMARKS.openCell;
+    sb.Player.x = o.x; sb.Player.y = o.y; sb.Player.setDir(1, 0);
+
+    sb.CONFIG.FLOOR_CAST = true;
+    FB.buf32.fill(SENTINEL);
+    RC.render();
+    let left = 0;
+    for (let i = 0; i < FB.buf32.length; i++) if ((FB.buf32[i] >>> 0) === SENTINEL) left++;
+    assert(left === 0,
+      c.label + '2: the textured cast fills every row at H=' + H + ' (horizon ' + (H >> 1) +
+      ') — no row skipped (' + left + ' left)');
+  }
 })();
 
 finish('ALL_RENDER_CONTRACTS_PASS');

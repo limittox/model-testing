@@ -103,18 +103,55 @@ var Raycaster = {
     var shadeFactor = Raycaster.shadeFactor;
     var applyShade = Raycaster.applyShade;
 
-    // ---- PASS A: whole-frame two-tone fill (ceiling above, floor below) ------
-    // Every pixel written, so the frame is fully painted and the horizon reads.
-    var ceil = CONFIG.CEIL_COLOR >>> 0;
-    var floor = CONFIG.FLOOR_COLOR >>> 0;
-    var y, base;
-    for (y = 0; y < horizon; y++) {
-      base = y * W;
-      for (var xa = 0; xa < W; xa++) buf[base + xa] = ceil;
-    }
-    for (y = horizon; y < H; y++) {
-      base = y * W;
-      for (var xb = 0; xb < W; xb++) buf[base + xb] = floor;
+    // ---- PASS A: row-based floor/ceiling cast (fills the WHOLE frame) ---------
+    // REND-03 (RESEARCH Pattern 3, CONTEXT decision 5). For every screen row below
+    // the horizon the floor lies at a CONSTANT world distance, so world coords
+    // interpolate LINEARLY across the row; the mirrored row (H-1-y) samples the
+    // ceiling. This Pass A fills the whole frame FIRST; the wall Pass B then
+    // overwrites the wall spans. Floors/ceilings NEVER write zBuffer (Phase 4
+    // sprites occlude against wall distance only). Gated on CONFIG.FLOOR_CAST; the
+    // real distance-shaded flat-colour fallback is the else branch (03-03 Task 2).
+    var y;
+    if (CONFIG.FLOOR_CAST) {
+      // Leftmost (cameraX = -1) and rightmost (cameraX = +1) ray directions frame
+      // the per-row world span; interpolating between them across x is the whole
+      // trick (no per-pixel trig, no per-pixel divide).
+      var rayDirX0 = dirX - planeX, rayDirY0 = dirY - planeY;
+      var rayDirX1 = dirX + planeX, rayDirY1 = dirY + planeY;
+      var posZ = CONFIG.CAMERA_Z * H;   // 0.5*H aligns the cast floor to the wall base
+      var floorTex = Textures.map.floor, ceilTex = Textures.map.ceiling;
+      var fBuf = floorTex.buf32, cBuf = ceilTex.buf32;
+      var FTEX = CONFIG.TEX_SIZE, FMASK = FTEX - 1;
+
+      // Iterate y over [horizon, H) and mirror to (H-1-y). The union of the floor
+      // range [horizon, H-1] and the ceiling range [0, H-1-horizon] is EXACTLY
+      // [0, H-1] for BOTH even and odd H, so no row is ever skipped (odd-H W2). The
+      // horizon row (p == 0) is clamped to the nearest row's distance so the
+      // (y - horizon) == 0 divide is avoided structurally (threat T-03-07).
+      for (y = horizon; y < H; y++) {
+        var p = y - horizon;
+        if (p < 1) p = 1;                        // horizon row: no /0, no CLEAR seam
+        var rowDistance = posZ / p;              // constant for the row; also the shade distance
+        var floorStepX = rowDistance * (rayDirX1 - rayDirX0) / W;
+        var floorStepY = rowDistance * (rayDirY1 - rayDirY0) / W;
+        var floorX = px + rowDistance * rayDirX0;
+        var floorY = py + rowDistance * rayDirY0;
+        var rowShade = shadeFactor(rowDistance, false);   // ONCE per row (REND-04)
+        var floorRowBase = y * W;
+        var ceilRowBase = (H - 1 - y) * W;                // mirror across the screen centre
+        for (var xf = 0; xf < W; xf++) {
+          // ((coord * TEX) | 0) & MASK: the forced-solid border keeps sampled floor
+          // coords inside the grid, and the mask lands the index in [0,4095] even at
+          // a boundary (threat T-03-08). No divide/trig/allocation in this hot loop.
+          var tx = ((floorX * FTEX) | 0) & FMASK;
+          var ty = ((floorY * FTEX) | 0) & FMASK;
+          floorX += floorStepX;
+          floorY += floorStepY;
+          var ti = (ty << 6) + tx;                        // ty*64 + tx
+          buf[floorRowBase + xf] = applyShade(fBuf[ti], rowShade);
+          buf[ceilRowBase + xf] = applyShade(cBuf[ti], rowShade);
+        }
+      }
     }
 
     // ---- PASS B: per-column DDA wall cast (overwrites wall spans) -------------
