@@ -97,7 +97,20 @@
                               billboard exists per spawn marker. Dispatched from
                               Game.step. Needs CONFIG + Level + Player +
                               Entities + Combat.
-     14. js/game.js         — defines Game: the requestAnimationFrame loop with
+     14. js/weapons.js      — defines Weapons: the player's HITSCAN weapons. The
+                              weapon table (read from CONFIG), the per-ray
+                              nearest-ALIVE-enemy resolution with its own grid DDA
+                              WALL STOP (so a shot cannot pass through a wall), the
+                              ammo gate that refuses to fire — and refuses to charge
+                              the cooldown — when empty, and the viewmodel state
+                              (bob / recoil / muzzle flash) drawn through the
+                              Raycaster.overlayPasses seam. Every landed ray calls
+                              Enemies.hurt, the single enemy-damage entry point, so
+                              it loads AFTER js/enemies.js. Dispatched from
+                              Game.step. Needs CONFIG + Level + Player + Combat +
+                              Enemies (+ Framebuffer/Sprites/Raycaster for the
+                              viewmodel draw).
+     15. js/game.js         — defines Game: the requestAnimationFrame loop with
                               the CLAMPED delta-time (CONFIG.DT_MAX), the refocus
                               resync, and the two seams. Game.input (an intent
                               source) and Game.view (a buf32 writer that does NOT
@@ -106,20 +119,21 @@
                               lives in CONFIG.DT_MAX; the single Framebuffer
                               present() lives in Game.render() so the once-per-
                               frame blit contract survives every view swap.
-     15. js/main.js         — entry point (needs CONFIG + Framebuffer + assets +
+     16. js/main.js         — entry point (needs CONFIG + Framebuffer + assets +
                               Level + Player + Input + TopDown + Raycaster +
-                              Entities + Combat + Enemies + Game): builds the
-                              level, spawns the player, resets the player's combat
-                              state and builds the enemies (Enemies.build() calls
-                              Entities.build() itself, then adopts), wires
-                              Game.input = Input and Game.view = Raycaster (with
-                              TopDown.ENABLED = false) and Raycaster.spritePass =
-                              Entities.render, attaches resync triggers, starts the
-                              loop.
+                              Entities + Combat + Enemies + Weapons + Game): builds
+                              the level, spawns the player, resets the player's
+                              combat and weapon state and builds the enemies
+                              (Enemies.build() calls Entities.build() itself, then
+                              adopts), wires Game.input = Input and Game.view =
+                              Raycaster (with TopDown.ENABLED = false),
+                              Raycaster.spritePass = Entities.render and the
+                              viewmodel onto Raycaster.overlayPasses, attaches
+                              resync triggers, starts the loop.
       i.e. config -> framebuffer -> textures -> sprites -> preview -> level ->
       player -> input -> topdown -> raycaster -> entities -> combat -> enemies ->
-      game -> main. Order encodes the dependency graph: later files extend earlier
-      globals.
+      weapons -> game -> main. Order encodes the dependency graph: later files
+      extend earlier globals.
 
       NOT LOADED HERE: everything under tools/. Those are Node-only .cjs
       verification harnesses; the browser never sees them, which is why the
@@ -154,6 +168,7 @@
   <script src="js/entities.js"></script>
   <script src="js/combat.js"></script>
   <script src="js/enemies.js"></script>
+  <script src="js/weapons.js"></script>
   <script src="js/game.js"></script>
   <script src="js/main.js"></script>
 </body>

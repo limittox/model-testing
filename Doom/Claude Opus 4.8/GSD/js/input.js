@@ -38,6 +38,18 @@ var Input = {
   locked: false,
   canvas: null,
 
+  // PHASE 5 (D-10). The MOUSE trigger, held between mousedown and mouseup. Set
+  // ONLY while the attached canvas holds pointer lock, checked at event time
+  // exactly as the mousemove handler checks it, and cleared by Input.reset — so
+  // losing focus or lock mid-click can never leave the trigger stuck down
+  // (threat T-05-15).
+  mouseFire: false,
+
+  // The PENDING weapon-select slot (0 = none). Recorded on keydown and DRAINED on
+  // read, exactly as the mouse delta is drained, so one press selects exactly once
+  // no matter how many frames the key stays down.
+  pendingSlot: 0,
+
   // The last pointer-lock failure (a thrown error or a rejected promise), recorded
   // rather than propagated so a refused lock never breaks the running loop.
   lockError: null,
@@ -53,8 +65,11 @@ var Input = {
   MOUSE_MAX_DX: 200,
 
   // ONE reused intent record — never allocate per frame (threat T-02-09). Shape
-  // is exactly what Player.update consumes: {forward, strafe, turn, run, mouseDX}.
-  intent: { forward: 0, strafe: 0, turn: 0, run: false, mouseDX: 0 }
+  // is what Player.update consumes ({forward, strafe, turn, run, mouseDX}) plus
+  // the Phase 5 weapon fields Weapons.update consumes ({fire, weaponSlot}). Any
+  // field added here MUST also be added to Game.ZERO_INTENT's frozen literal, or a
+  // dead player's substituted intent reads `undefined` for it.
+  intent: { forward: 0, strafe: 0, turn: 0, run: false, mouseDX: 0, fire: false, weaponSlot: 0 }
 };
 
 (function () {
@@ -73,13 +88,40 @@ var Input = {
   BINDINGS.ArrowRight = { slot: 'turn', value: 1 };
   BINDINGS.ShiftLeft = { slot: 'run' };
   BINDINGS.ShiftRight = { slot: 'run' };
+  // PHASE 5 FIRE (D-10). The 'fire' slot is a HELD BOOLEAN, handled exactly like
+  // the 'run' slot: presence in the held-key set sets the flag, it is never summed.
+  BINDINGS.Space = { slot: 'fire' };
+  BINDINGS.ControlLeft = { slot: 'fire' };
+  BINDINGS.ControlRight = { slot: 'fire' };
   Input.BINDINGS = BINDINGS;
 
+  // The two intent slots that are BOOLEAN rather than numeric. A data set rather
+  // than a chain of string comparisons in readIntent's hot loop.
+  var BOOL_SLOTS = Object.create(null);
+  BOOL_SLOTS.run = true;
+  BOOL_SLOTS.fire = true;
+
+  // SLOT_KEYS — physical digit key -> weapon slot number (D-10). Deliberately NOT
+  // in BINDINGS: a weapon select is a ONE-SHOT edge (recorded on keydown, drained
+  // on read), not a held state, so it cannot be recomputed from the held-key set.
+  var SLOT_KEYS = Object.create(null);
+  SLOT_KEYS.Digit1 = 1;
+  SLOT_KEYS.Digit2 = 2;
+  Input.SLOT_KEYS = SLOT_KEYS;
+
+  // Codes that are BOUND but whose browser default must still run. The Control
+  // keys are here because suppressing them would swallow every browser shortcut
+  // the player might legitimately want (Ctrl+R, Ctrl+W, Ctrl+Shift+I).
+  var NO_PREVENT = Object.create(null);
+  NO_PREVENT.ControlLeft = true;
+  NO_PREVENT.ControlRight = true;
+
   // PREVENT — physical key codes whose browser default action is suppressed, so
-  // the page never scrolls while playing (D-07): every bound code plus the
-  // remaining arrows and Space. Null-prototype for a clean membership test.
+  // the page never scrolls while playing (D-07): every bound code except the
+  // NO_PREVENT set, plus the remaining arrows and Space. Null-prototype for a
+  // clean membership test.
   var PREVENT = Object.create(null);
-  for (var code in BINDINGS) PREVENT[code] = true;
+  for (var code in BINDINGS) { if (!NO_PREVENT[code]) PREVENT[code] = true; }
   PREVENT.ArrowUp = true;
   PREVENT.ArrowDown = true;
   PREVENT.Space = true;
@@ -95,6 +137,10 @@ var Input = {
     // only needs the first, so ignore repeats (the set is set once per press).
     if (e.repeat) { if (PREVENT[e.code] && e.preventDefault) e.preventDefault(); return; }
     Input.keys[e.code] = true;
+    // A weapon-select press records a PENDING slot; readIntent drains it. Setting
+    // intent, not state — the selection itself is Weapons.update's decision.
+    var slot = SLOT_KEYS[e.code];
+    if (slot) Input.pendingSlot = slot;
     if (PREVENT[e.code] && e.preventDefault) e.preventDefault();
   }
 
@@ -118,6 +164,20 @@ var Input = {
     if (dx > Input.MOUSE_MAX_DX) dx = Input.MOUSE_MAX_DX;
     else if (dx < -Input.MOUSE_MAX_DX) dx = -Input.MOUSE_MAX_DX;
     Input.mouseDX += dx;
+  }
+
+  // THE MOUSE TRIGGER (D-10). Armed ONLY while the attached canvas holds pointer
+  // lock — read at event time, the same discipline onMouseMove uses — so a click on
+  // the page before the player has locked in never fires the gun. Disarming is
+  // UNCONDITIONAL: a mouseup that arrives after lock was lost must still release
+  // the trigger.
+  function onMouseDown(e) {
+    if (document.pointerLockElement !== Input.canvas) return;
+    Input.mouseFire = true;
+  }
+
+  function onMouseUp(e) {
+    Input.mouseFire = false;
   }
 
   // POINTER-LOCK LIFECYCLE (CTRL-02, D-08). On any change, mirror whether the
@@ -160,6 +220,10 @@ var Input = {
     canvas.addEventListener('click', onClick);
     // Mouse movement is a document-level signal while locked.
     document.addEventListener('mousemove', onMouseMove);
+    // The mouse trigger (D-10) is document-level for the same reason: while locked
+    // the cursor has no position, so the events do not land on the canvas.
+    document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('mouseup', onMouseUp);
     // Pointer-lock lifecycle: track lock state, clean up on loss/error.
     document.addEventListener('pointerlockchange', onPointerLockChange);
     document.addEventListener('pointerlockerror', onPointerLockError);
@@ -199,6 +263,7 @@ var Input = {
     intent.strafe = 0;
     intent.turn = 0;
     intent.run = false;
+    intent.fire = false;
 
     // The turn slot (ArrowLeft/ArrowRight) is computed PURELY from the held-key
     // set here, with NO dependency on Input.locked or document.pointerLockElement.
@@ -209,12 +274,20 @@ var Input = {
     for (var code in keys) {
       var b = BINDINGS[code];
       if (!b) continue;
-      if (b.slot === 'run') intent.run = true;
+      if (BOOL_SLOTS[b.slot]) intent[b.slot] = true;
       else intent[b.slot] += b.value;
     }
 
+    // The trigger is the keyboard OR the locked mouse button. Recomputed from the
+    // held state every read, never latched.
+    if (Input.mouseFire === true) intent.fire = true;
+
     intent.mouseDX = Input.mouseDX;
     Input.mouseDX = 0;
+    // The weapon slot is DRAINED on read, exactly like the mouse delta, so one key
+    // press produces exactly one selection.
+    intent.weaponSlot = Input.pendingSlot;
+    Input.pendingSlot = 0;
     return intent;
   };
 
@@ -227,6 +300,11 @@ var Input = {
     var keys = Input.keys;
     for (var code in keys) delete keys[code];
     Input.mouseDX = 0;
+    // PHASE 5: the trigger and the pending weapon select clear too, so a click or a
+    // weapon-switch press held when focus or pointer lock was lost cannot fire (or
+    // switch) on the frame after it comes back (threat T-05-15).
+    Input.mouseFire = false;
+    Input.pendingSlot = 0;
   };
 
 })();

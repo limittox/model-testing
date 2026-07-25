@@ -16,7 +16,8 @@
  * (seed the player's health/armor/ammo from CONFIG) followed by Enemies.build().
  * Enemies.build() calls Entities.build() ITSELF and then ADOPTS the enemy
  * billboards it produced, so calling both here would rebuild the list twice for
- * nothing. Everything else about the boot sequence is unchanged.
+ * nothing. Weapons.reset() then seeds the weapon state. Everything else about the
+ * boot sequence is unchanged.
  */
 
 window.addEventListener('load', function () {
@@ -40,6 +41,12 @@ window.addEventListener('load', function () {
   // rather than appending duplicates — and preallocates the fireball pool.
   Combat.reset();
   Enemies.build();
+
+  // Seed the weapon state: the shared cooldown, the viewmodel timers and bob
+  // phase, and the deterministic pellet-spread stream. Called AFTER Player.spawn()
+  // because it seeds the viewmodel's travel tracker from the current pose — a
+  // weapon must not snap into a full-amplitude bob on the first frame.
+  Weapons.reset();
 
   // Wire the two seams. Input feeds intent (keyboard + pointer-lock mouse) into
   // Game.step; Game.view feeds the rendered frame into Game.render.

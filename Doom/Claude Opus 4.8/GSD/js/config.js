@@ -159,5 +159,66 @@ var CONFIG = {
   PLAYER_START_SHELLS: 0,
   // ARMOR_ABSORB_DIVISOR: the Doom green-armor fraction. The LOCKED formula is
   //   absorbed = min(armor, floor(dmg / ARMOR_ABSORB_DIVISOR))
-  ARMOR_ABSORB_DIVISOR: 3
+  ARMOR_ABSORB_DIVISOR: 3,
+
+  // ===========================================================================
+  // PHASE 5 — HITSCAN WEAPONS AND THE VIEWMODEL (05-CONTEXT D-05 + D-11: ALL
+  // tuning numbers live here; js/weapons.js contains no magic numbers).
+  // ===========================================================================
+
+  // --- Pistol: one accurate ray per bullet ---------------------------------
+  PISTOL_DAMAGE: 15,          // per ray; CONFIG.ENEMY_HEALTH 40 => 3 shots to kill
+  PISTOL_COOLDOWN: 0.35,      // seconds between shots — ~2.8 rounds per second
+  // A DELIBERATELY TINY spread, not zero. It runs the pistol down the SAME
+  // spread-and-cast code path as the shotgun (one implementation, not two) while
+  // staying far inside HITSCAN_TARGET_RADIUS at every usable range: at 20 cells
+  // the worst-case offset is 20*sin(0.01) = 0.20 cells, still under the 0.35
+  // target radius, so the pistol remains an accurate weapon.
+  PISTOL_SPREAD: 0.01,        // radians, plus or minus
+  PISTOL_AMMO: 'bullets',     // the Combat.ammo field this weapon spends
+
+  // --- Shotgun: a cone of pellets per shell -------------------------------
+  SHOTGUN_DAMAGE: 7,          // PER PELLET — a full 7-pellet hit is 49
+  SHOTGUN_PELLETS: 7,
+  SHOTGUN_COOLDOWN: 0.8,      // seconds — deliberately slower than the pistol
+  // At 5 cells the worst-case pellet offset is 5*sin(0.08) = 0.40 cells, just
+  // outside HITSCAN_TARGET_RADIUS — which is the point: the shotgun is lethal
+  // point-blank and leaks pellets at range.
+  SHOTGUN_SPREAD: 0.08,       // radians, plus or minus
+  SHOTGUN_AMMO: 'shells',
+
+  // --- Shared hitscan resolution (D-05) -----------------------------------
+  // HITSCAN_RANGE: the maximum along-ray distance a target may sit at, and the
+  // value Weapons.wallDistance returns when no solid cell is found inside it.
+  // NOTE: this deliberately EXCEEDS the longest clear line in the shipped 24x24
+  // level (~21 cells), so in practice the DDA wall stop — never the range — is
+  // what bounds a shot. The constant exists so a bigger future level cannot make
+  // the target scan unbounded.
+  HITSCAN_RANGE: 24.0,
+  // HITSCAN_TARGET_RADIUS: how far the enemy CENTRE may sit from the aim ray, as
+  // a PERPENDICULAR distance in cells. Matches CONFIG.ENEMY_RADIUS so the
+  // hittable silhouette is the enemy's actual body, not a generous halo.
+  HITSCAN_TARGET_RADIUS: 0.35,
+
+  // --- Viewmodel presentation (WEAP-04) -----------------------------------
+  MUZZLE_FLASH_TIME: 0.06,    // seconds the flash overlay is composited for
+  RECOIL_TIME: 0.12,          // seconds for the kick to ease back to rest
+  RECOIL_PIXELS: 6,           // peak downward kick, in INTERNAL framebuffer pixels
+  BOB_FREQ: 9.0,              // bob phase radians per cell travelled per second
+  BOB_AMP_PIXELS: 4,          // bob amplitude at FULL speed, in internal pixels
+  // VIEWMODEL_HEIGHT_FRAC: drawn height as a fraction of Framebuffer.height. The
+  // width is derived from the source aspect, so the viewmodel never stretches on
+  // a widescreen viewport.
+  VIEWMODEL_HEIGHT_FRAC: 0.42,
+  // The muzzle flash is sized and anchored RELATIVE to the drawn weapon box, so
+  // it tracks the bob and the recoil for free: its side length is this fraction
+  // of the weapon's drawn height, and its centre sits this fraction of that
+  // height below the weapon's top edge (i.e. at the muzzle).
+  MUZZLE_FLASH_SCALE: 0.55,
+  MUZZLE_FLASH_ANCHOR_Y: 0.08,
+
+  // WEAPON_SEED_SALT: the distinct salt added to CONFIG.SEED for the weapon
+  // spread stream, so pellet scatter is deterministic and reproducible headlessly
+  // and cannot correlate with any procedural-art stream.
+  WEAPON_SEED_SALT: 7331
 };

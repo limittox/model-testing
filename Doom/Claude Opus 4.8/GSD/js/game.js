@@ -55,9 +55,18 @@ var Game = {
   input: null,    // { readIntent(): intent, reset?() }
   view: null,     // { render(): void }  — writes buf32, does NOT present
 
-  // The intent record used whenever no input source is attached. Frozen and
-  // shared so no per-frame allocation happens in the hot loop.
-  ZERO_INTENT: Object.freeze({ forward: 0, strafe: 0, turn: 0, mouseDX: 0, run: false })
+  // The intent record used whenever no input source is attached — and, since
+  // Phase 5, substituted for the sampled intent while the player is dead. Frozen
+  // and shared so no per-frame allocation happens in the hot loop.
+  //
+  // EVERY FIELD OF THE INTENT CONTRACT MUST APPEAR HERE. `fire` and `weaponSlot`
+  // are Phase 5's additions (Weapons.update consumes them): a missing field would
+  // read `undefined` for a dead player, and `undefined === true` is false only by
+  // luck of how the consumer happens to be written.
+  ZERO_INTENT: Object.freeze({
+    forward: 0, strafe: 0, turn: 0, mouseDX: 0, run: false,
+    fire: false, weaponSlot: 0
+  })
 };
 
 (function () {
@@ -140,6 +149,13 @@ var Game = {
       Enemies.update(dt);
       Enemies.updateProjectiles(dt);
     }
+
+    // THE PLAYER'S WEAPONS run LAST, with the SAME intent record sampled once at
+    // the top of this function — so the "intent is read exactly once per frame"
+    // contract holds across every consumer. Weapons.update owns every cooldown and
+    // ammo decision; passing the (possibly ZERO_INTENT-substituted) intent through
+    // is what makes the dead-player freeze cover firing for free.
+    if (typeof Weapons !== 'undefined') Weapons.update(dt, intent);
   };
 
   // ===========================================================================
