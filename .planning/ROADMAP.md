@@ -95,12 +95,12 @@ Plans:
   2. Sprites behind walls are hidden and partial walls clip them correctly via the z-buffer, with nearer sprites drawn over farther ones (back-to-front sort).
   3. Sprite transparency is clean — no halo or fringe artifacts around edges.
 
-**Plans**: 2 plans (estimated)
+**Plans**: 2 plans
 
 Plans:
 
-- [ ] 04-01: Billboard projection (invert the dir|plane matrix) with distance scaling and back-to-front depth sort
-- [ ] 04-02: Per-column z-buffer occlusion + alpha-tested transparency (baked alpha, smoothing disabled)
+- [ ] 04-01-PLAN.md — Tracer: Entities list from Level.spawns + billboard projection (inverted dir|plane matrix) with distance scaling, back-to-front depth sort, and a first per-column z-buffer occlusion cut; falsifiable sprite harness (ENT-01, ENT-02)
+- [ ] 04-02-PLAN.md — Partial-wall per-column z-buffer clipping + back-to-front sort overlap + clean alpha-tested transparency (no halo) + sprite fog shading (ENT-02, ENT-03)
 
 ### Phase 5: Enemy AI, Weapons & Pickups
 
