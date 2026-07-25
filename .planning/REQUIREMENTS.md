@@ -74,10 +74,10 @@ All code lives under `Doom/Claude Opus 4.8/GSD/`.
 
 - [x] **LVL-01**: A hand-designed grid level with rooms, corridors, and multiple wall/texture types
 - [x] **LVL-02**: The level is populated with enemy spawns and pickups at designed positions
-- [ ] **LVL-03**: The level has a reachable, visibly-marked exit
-- [ ] **LVL-04**: Reaching the exit triggers a victory state showing stats (kills, time)
-- [ ] **LVL-05**: Player health reaching zero triggers a death state with a restart option
-- [ ] **LVL-06**: A title/start screen shows controls and is the single user gesture that starts play, unlocks pointer lock, and resumes audio
+- [x] **LVL-03**: The level has a reachable, visibly-marked exit
+- [x] **LVL-04**: Reaching the exit triggers a victory state showing stats (kills, time)
+- [x] **LVL-05**: Player health reaching zero triggers a death state with a restart option
+- [x] **LVL-06**: A title/start screen shows controls and is the single user gesture that starts play, unlocks pointer lock, and resumes audio
 
 ### Audio
 
@@ -162,10 +162,10 @@ Which phases cover which requirements. Populated during roadmap creation.
 | AUD-01 | Phase 6 | Pending |
 | AUD-02 | Phase 6 | Pending |
 | AUD-03 | Phase 6 | Pending |
-| LVL-03 | Phase 6 | Pending |
-| LVL-04 | Phase 6 | Pending |
-| LVL-05 | Phase 6 | Pending |
-| LVL-06 | Phase 6 | Pending |
+| LVL-03 | Phase 6 | Complete |
+| LVL-04 | Phase 6 | Complete |
+| LVL-05 | Phase 6 | Complete |
+| LVL-06 | Phase 6 | Complete |
 
 **Coverage:**
 

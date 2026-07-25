@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 05
-current_phase_name: enemy-ai-weapons-pickups
-status: verifying
-stopped_at: Completed 05-04-PLAN.md — phase 5 plans all executed
-last_updated: "2026-07-25T05:23:59.157Z"
+current_phase: 06
+current_phase_name: hud-audio-game-state-machine
+status: executing
+stopped_at: Completed 06-01-PLAN.md
+last_updated: "2026-07-25T06:45:14.997Z"
 last_activity: 2026-07-25
-last_activity_desc: Phase 05 execution started
+last_activity_desc: Phase 06 execution started
 progress:
-  total_phases: 5
+  total_phases: 6
   completed_phases: 5
-  total_plans: 14
-  completed_plans: 14
+  total_plans: 17
+  completed_plans: 15
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-23)
 
 **Core value:** You can open it in a browser and immediately play a fun, recognizably-Doom first-person shooter — move, fight, shoot, manage health/ammo, and win or die.
-**Current focus:** Phase 05 — enemy-ai-weapons-pickups
+**Current focus:** Phase 06 — hud-audio-game-state-machine
 
 ## Current Position
 
-Phase: 05 (enemy-ai-weapons-pickups) — EXECUTING
-Plan: 4 of 4
-Status: Phase complete — ready for verification
-Last activity: 2026-07-25 — Phase 05 execution started
+Phase: 06 (hud-audio-game-state-machine) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-07-25 — Phase 06 execution started
 
-Progress: [██████████] 100%
+Progress: [█████████░] 88%
 
 ## Performance Metrics
 
@@ -73,6 +73,7 @@ Progress: [██████████] 100%
 | Phase 05 P02 | ~55 min | 3 tasks | 13 files |
 | Phase 05 P03 | ~45 min | 3 tasks | 6 files |
 | Phase 05 P04 | ~50 min | 3 tasks | 15 files |
+| Phase 06 P01 | 62 | 3 tasks | 18 files |
 
 ## Accumulated Context
 
@@ -121,6 +122,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Pickups.collect deactivates the entity BEFORE applying the grant, so deactivation is unconditional on anything the grant does — no ordering exists in which an effect lands while the item stays on the floor
 - [Phase ?]: The message glyph scale is derived from Framebuffer.height and then CLAMPED DOWN by width; height alone lets a long message overflow the frame at large internal resolutions
 - [Phase ?]: 05-CONTEXT D-07's 'armor absorbs per 4' contradicts D-04's LOCKED divisor of 3; the D-04 lock wins and ARMOR_ABSORB_DIVISOR is untouched
+- [Phase ?]: Phase 6: the game-state step gate lives in Game.frame, never in Game.step — Game.step stays the un-gated simulation primitive every Phase 1-5 harness drives directly
+- [Phase ?]: Phase 6 D-02 resolved: Game.renderMessage stays the SOLE message renderer in Raycaster.overlayPasses; no HUD-side renderer, and verify-state section 4 arms the double-draw gate for 06-02
+- [Phase ?]: Sound.ctx deferred to 06-03: verify-pickups 0d asserts no context field exists on Sound, and a Phase 1-5 assertion may only be fixed on the production side
 
 ### Pending Todos
 
@@ -145,6 +149,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-25T05:23:59.132Z
-Stopped at: Completed 05-04-PLAN.md — phase 5 plans all executed
+Last session: 2026-07-25T06:45:14.976Z
+Stopped at: Completed 06-01-PLAN.md
 Resume file: None
