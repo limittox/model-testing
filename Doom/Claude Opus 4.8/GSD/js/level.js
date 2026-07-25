@@ -170,6 +170,15 @@ var Level = {
   HEIGHT: 0,
   cells: null,         // Uint8Array(WIDTH*HEIGHT), row-major wall IDs
   playerStart: null,   // {x, y, mx, my, dirX, dirY}
+  // exit — the victory marker (LVL-03/LVL-04, Phase 6). DERIVED by build() from
+  // the spawn table, never hardcoded, and derived AFTER the forced-border filter
+  // so it is always a KEPT spawn: a REFERENCE to the record in Level.spawns, not
+  // a copy. That is the whole point of deriving it rather than writing (19,20)
+  // into game.js — Game.checkEndConditions's proximity test and
+  // verify-level.cjs's flood-fill reachability assertion then read THE SAME cell,
+  // so the win condition cannot drift onto a cell the player cannot reach.
+  // Null when the map has no exit marker (build() pushes a warning).
+  exit: null,          // {type:'exit', x, y, mx, my} — an element of spawns
   spawns: [],          // [{type, x, y, mx, my}] — consumed by Phase 5
   warnings: [],        // descriptive strings; the shipped map must produce none
   LANDMARKS: { openCell: null, wallFaceEast: null, corridorCell: null },
@@ -205,6 +214,7 @@ var Level = {
     Level.warnings = [];
     Level.spawns = [];
     Level.playerStart = null;
+    Level.exit = null;
 
     var stone = Level.STONE_ID;
     var pad = Level.STONE_CHAR;
@@ -293,6 +303,20 @@ var Level = {
       }
     }
     Level.spawns = kept;
+
+    // --- the DERIVED exit record (LVL-03/LVL-04, Phase 6) -------------------
+    // Read out of the KEPT spawn list, so a marker the forced border just buried
+    // is never handed to the victory trigger as a cell the player cannot stand
+    // on. First match wins (the map is authored with exactly one), and the record
+    // is a REFERENCE into Level.spawns rather than a copy — one exit, one object.
+    for (i = 0; i < Level.spawns.length; i++) {
+      if (Level.spawns[i].type === 'exit') { Level.exit = Level.spawns[i]; break; }
+    }
+    if (!Level.exit) {
+      Level.warnings.push(
+        'no exit marker ("X") in the map source — the level has no victory condition'
+      );
+    }
 
     if (!Level.playerStart) {
       Level.warnings.push('no player start marker ("P") in the map source');

@@ -58,6 +58,19 @@ var Input = {
   // actually requested lock (i.e. lock is gesture-scoped, not requested at load).
   lockAttempts: 0,
 
+  // PHASE 6 — THE SINGLE-GESTURE SEAM (LVL-06 / AUD-03). Null, or a function the
+  // canvas click handler invokes BEFORE requesting pointer lock. main.js assigns
+  // Game.handleGesture here. It is declared as plain DATA on this literal on
+  // purpose: input.js stays a browser-facing intent source that knows nothing
+  // about the game-state machine or the audio module, exactly as it knows nothing
+  // about the player pose.
+  gestureHook: null,
+
+  // The last error a gesture hook threw, RECORDED rather than propagated (threat
+  // T-06-02). Kept separate from lockError so "the hook blew up" and "the browser
+  // refused pointer lock" stay distinguishable.
+  gestureError: null,
+
   // Per-EVENT magnitude clamp for a single mouse movement (pixels). A single huge
   // movementX after regaining focus cannot spin the camera (threat T-02-12);
   // accumulation across several events in one frame is preserved — only each
@@ -149,7 +162,34 @@ var Input = {
     if (PREVENT[e.code] && e.preventDefault) e.preventDefault();
   }
 
+  // THE SINGLE GESTURE (LVL-06 / AUD-03). ONE click on the canvas has to carry
+  // THREE things, and THE ORDER IS LOAD-BEARING:
+  //
+  //   1. Input.gestureHook (Game.handleGesture) — the state change (title ->
+  //      playing, or a restart from an end screen) AND the audio unlock.
+  //   2. Input.requestLock() — the pointer-lock request.
+  //
+  // Both must happen inside the SAME user-activation task as the click, or the
+  // browser's autoplay policy refuses to resume the AudioContext and the lock is
+  // refused as not-gesture-scoped. That is why they share one handler rather than
+  // being wired to two different events.
+  //
+  // THE HOOK RUNS FIRST, AND ITS THROW IS SWALLOWED — both deliberate:
+  //   . hook first means a REFUSED LOCK cannot stop the game from starting (the
+  //     arrow-key fallback, CTRL-03, is a first-class control path, so playing
+  //     without lock is a supported state, not a broken one);
+  //   . the try/catch means a THROWING HOOK cannot stop the lock from being
+  //     requested (threat T-06-02) — a bug in the state machine must not cost the
+  //     player their mouse.
   function onClick() {
+    var hook = Input.gestureHook;
+    if (typeof hook === 'function') {
+      try {
+        hook();
+      } catch (err) {
+        Input.gestureError = err;
+      }
+    }
     Input.requestLock();
   }
 

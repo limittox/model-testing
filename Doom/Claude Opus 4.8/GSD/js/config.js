@@ -307,5 +307,61 @@ var CONFIG = {
   // same glyph at this fraction of the text's shade — a near-black drop shadow, so
   // the line reads over a lit wall, a dark corridor and a sprite alike without
   // needing a second asset or any partial alpha.
-  MESSAGE_SHADOW_SHADE: 0.12
+  MESSAGE_SHADOW_SHADE: 0.12,
+
+  // ===========================================================================
+  // PHASE 6 — THE GAME-STATE MACHINE AND THE OVERLAY SCREENS (06-CONTEXT D-06 +
+  // D-07: ALL tuning numbers live here; js/game.js and js/hud.js contain no
+  // magic numbers of their own).
+  // ===========================================================================
+
+  // EXIT_RADIUS: how near the player's CENTRE must come to Level.exit's centre
+  // for the run to end in VICTORY (LVL-04), in cells. Compared SQUARED on both
+  // sides inside Game.checkEndConditions — no square root and no allocation in
+  // the per-frame test — exactly the shape COLLECT_RADIUS uses.
+  //
+  // DERIVED, not eyeballed: it is bracketed from BOTH sides.
+  //
+  //   UPPER BOUND (< 1 cell). The exit alcove at (19,20) is ONE cell wide and its
+  //   three remaining sides are exit-faced wall. A radius of a whole cell would
+  //   fire from the corridor outside the alcove, so the player would win by
+  //   walking PAST the exit. Half a cell means they must actually stand in it.
+  //
+  //   LOWER BOUND (> the per-frame travel budget). The player's largest possible
+  //   single-frame step is WALK_SPEED * RUN_MULT * DT_MAX = 3.0 * 1.8 * 0.05 =
+  //   0.27 cells. The trigger's diameter, 2 * EXIT_RADIUS = 1.0 cells, is
+  //   comfortably larger, so a RUNNING player cannot straddle the trigger between
+  //   two frames and sprint straight through their own win. This is the same
+  //   "test the step, not just the endpoint" hazard COLLECT_RADIUS and
+  //   PROJ_HIT_RADIUS both document.
+  EXIT_RADIUS: 0.5,
+
+  // --- The title / victory / death SCREENS (js/hud.js, D-01) ----------------
+  // These are drawn on the #hud OVERLAY canvas with the Canvas 2D text API, so
+  // unlike every colour above they are CSS colour STRINGS in DISPLAY pixels, not
+  // packed little-endian framebuffer words. Nothing here ever reaches buf32.
+  //
+  // EVERY SIZE IS A FRACTION OF THE HUD CANVAS HEIGHT, never a pixel count: #hud
+  // is sized to the viewport, so a fixed pixel size would be a shout in a small
+  // window and a whisper on a 4K display. js/hud.js multiplies each fraction by
+  // the live canvas height every frame.
+  //
+  // The scrim is the translucent full-canvas wash painted UNDER every screen, so
+  // the frozen world behind the overlay reads as a backdrop rather than competing
+  // with the text. Alpha is a real partial alpha here — legitimate on the 2D
+  // overlay context, which composites, unlike the framebuffer's binary alpha key.
+  SCREEN_SCRIM_COLOR: '#05070c',
+  SCREEN_SCRIM_ALPHA: 0.74,
+  SCREEN_HEADING_FRAC: 0.085,  // the one big word (DOOM CLONE / VICTORY / YOU DIED)
+  SCREEN_BODY_FRAC: 0.030,     // the controls list and the stat readouts
+  SCREEN_PROMPT_FRAC: 0.038,   // the click-to-continue line
+  SCREEN_LINE_FRAC: 0.046,     // baseline-to-baseline spacing for stacked lines
+  SCREEN_TEXT_COLOR: '#d8d2c4',
+  SCREEN_HEADING_COLOR: '#c8302a',
+  SCREEN_PROMPT_COLOR: '#e8c14a',
+  // A GENERIC SYSTEM FONT STACK — family names only. No @font-face, no font file,
+  // no network fetch: the self-containment gate (no runtime loads, runs from
+  // file://) is untouched. The monospace families come first so the stat columns
+  // line up; the generic keyword is the guaranteed fallback.
+  SCREEN_FONT_FAMILY: '"Courier New", Courier, monospace'
 };

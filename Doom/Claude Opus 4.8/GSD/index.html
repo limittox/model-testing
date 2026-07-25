@@ -132,7 +132,24 @@
                               the test sees the pose the frame ended on. Needs
                               CONFIG + Player + Entities + Combat + Sound (+ Game
                               for the message queue, resolved at call time).
-     17. js/game.js         — defines Game: the requestAnimationFrame loop with
+     17. js/hud.js          — defines HUD: the #hud OVERLAY renderer (Phase 6,
+                              D-01). render() clears and repaints the transparent
+                              DISPLAY-resolution overlay canvas every frame — it
+                              must repaint every frame because Framebuffer.resize()
+                              re-sizes (and therefore CLEARS) that backing store.
+                              It draws through the Canvas 2D API and NEVER calls
+                              putImageData/getImageData on either context, so the
+                              single-blit-per-frame contract that Game.render owns
+                              is untouched. In THIS plan it draws the title and
+                              victory screens (06-02 adds the in-game status bar,
+                              crosshair, minimap and damage flash, and 06-01's
+                              Task 2 adds the death screen). It adds NO message
+                              renderer: Game.renderMessage stays the sole one
+                              (D-02). Dispatched from Game.render AFTER
+                              Framebuffer.present(); it needs Framebuffer, and
+                              reads CONFIG/Game at CALL time, which is why it can
+                              sit here BEFORE js/game.js.
+     18. js/game.js         — defines Game: the requestAnimationFrame loop with
                               the CLAMPED delta-time (CONFIG.DT_MAX), the refocus
                               resync, and the two seams. Game.input (an intent
                               source) and Game.view (a buf32 writer that does NOT
@@ -141,7 +158,15 @@
                               lives in CONFIG.DT_MAX; the single Framebuffer
                               present() lives in Game.render() so the once-per-
                               frame blit contract survives every view swap.
-     18. js/main.js         — entry point (needs CONFIG + Framebuffer + assets +
+                              PHASE 6 adds the four-state machine (Game.STATES /
+                              state / setState / checkEndConditions / handleGesture
+                              / restart / result): Game.frame gates the STEP on the
+                              playing state while render + present stay
+                              unconditional, and Game.render dispatches HUD.render
+                              after the present. Game.step itself stays UN-GATED —
+                              it is the raw simulation primitive every harness
+                              drives directly.
+     19. js/main.js         — entry point (needs CONFIG + Framebuffer + assets +
                               Level + Player + Input + TopDown + Raycaster +
                               Entities + Combat + Enemies + Weapons + Sound +
                               Pickups + Game): builds the level, spawns the player,
@@ -154,10 +179,15 @@
                               = Entities.render and then the viewmodel and the
                               message line onto Raycaster.overlayPasses IN THAT
                               ORDER, attaches resync triggers, starts the loop.
+                              PHASE 6 also assigns Input.gestureHook =
+                              Game.handleGesture (the LVL-06 single gesture) and
+                              calls HUD.reset(), and deliberately LEAVES the boot
+                              state at title so the first thing on screen is the
+                              title screen over a frozen, fully rendered world.
       i.e. config -> framebuffer -> textures -> sprites -> preview -> level ->
       player -> input -> topdown -> raycaster -> entities -> combat -> enemies ->
-      weapons -> sound -> pickups -> game -> main. Order encodes the dependency
-      graph: later files extend earlier globals.
+      weapons -> sound -> pickups -> hud -> game -> main. Order encodes the
+      dependency graph: later files extend earlier globals.
 
       NOT LOADED HERE: everything under tools/. Those are Node-only .cjs
       verification harnesses; the browser never sees them, which is why the
@@ -195,6 +225,7 @@
   <script src="js/weapons.js"></script>
   <script src="js/sound.js"></script>
   <script src="js/pickups.js"></script>
+  <script src="js/hud.js"></script>
   <script src="js/game.js"></script>
   <script src="js/main.js"></script>
 </body>

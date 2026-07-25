@@ -78,6 +78,38 @@ var Game = {
   messageHead: 0,
   messagesPosted: 0,
 
+  // ===========================================================================
+  // THE GAME STATE MACHINE (LVL-04/05/06, Phase 6 — 06-CONTEXT D-06: LOCKED).
+  //
+  // Four states and no more. FROZEN as a record so the set is data every consumer
+  // reads by name — the loop's step gate, HUD's screen dispatch and
+  // Game.setState's validator all compare against these exact strings rather than
+  // re-typing them, and freezing means a typo is a load-time-visible mistake
+  // instead of a fifth state nobody declared (threat T-06-01).
+  // ===========================================================================
+  STATES: Object.freeze({
+    TITLE: 'title',       // shown on load; sim frozen, world still rendering
+    PLAYING: 'playing',   // the ONLY state the simulation advances in
+    VICTORY: 'victory',   // reached the exit (LVL-04)
+    DEAD: 'dead'          // Combat.dead latched (LVL-05)
+  }),
+
+  // The boot state. Written as the literal 'title' only because an object literal
+  // cannot reference its own STATES.TITLE while it is still being constructed;
+  // every other site in the project goes through Game.STATES.
+  state: 'title',
+
+  // Game.time at the most recent state transition. Simulation time, not wall
+  // clock, for the same reason Combat.lastDamageAt is (contract 1b).
+  stateEnteredAt: 0,
+
+  // THE FROZEN RUN RESULT — a PREALLOCATED record, stamped once at the instant of
+  // the victory/death transition and MUTATED IN PLACE thereafter (never
+  // reassigned, so the end screens can hold the reference). The end screens read
+  // THIS, not the live counters, so the numbers a player is looking at are the
+  // numbers their run actually ended on (threat T-06-08).
+  result: { kills: 0, totalKills: 0, time: 0 },
+
   // --- Seams (defaults; assigned by Plan 03 / Phase 3) ---
   input: null,    // { readIntent(): intent, reset?() }
   view: null,     // { render(): void }  — writes buf32, does NOT present
@@ -141,8 +173,29 @@ var Game = {
     // accumulated at the top of Game.step (contract 1b). Behaviour through this
     // loop is identical: a resync frame takes dt 0 and skips the step anyway.
 
-    // Step only on a non-resync frame; render and present ALWAYS.
-    if (!isResync) Game.step(dt);
+    // =========================================================================
+    // THE STATE GATE (LVL-06, D-06). The step runs ONLY in the playing state, so
+    // title / victory / dead FREEZE the simulation — while Game.render() below
+    // stays UNCONDITIONAL, so the frozen world keeps drawing and keeps presenting
+    // exactly once per frame behind the overlay instead of going black. "Frozen"
+    // must never degrade into "stopped rendering".
+    //
+    // THE ASYMMETRY IS DELIBERATE AND LOAD-BEARING: the gate lives HERE, IN THE
+    // LOOP, and NOT inside Game.step. Game.step stays the raw, UN-GATED simulation
+    // primitive — every Phase 1-5 harness drives it directly with a manufactured
+    // delta, and gating it would silently turn ~500 assertions into vacuous passes
+    // against a simulation that never ran. The loop is the ONLY driver in the
+    // browser, so gating the loop is a complete freeze where it actually matters.
+    // tools/verify-state.cjs owns proving the gate, and proves it with a paired
+    // control: the SAME frames with the SAME held intent DO move the player once
+    // the state is playing, so the freeze is a real gate rather than a scenario
+    // that was broken to begin with.
+    //
+    // AN UNKNOWN STATE FAILS CLOSED (threat T-06-01): this is an equality test
+    // against the playing constant, not an inequality against the others, so any
+    // value that is not exactly 'playing' freezes rather than simulating.
+    // =========================================================================
+    if (!isResync && Game.state === Game.STATES.PLAYING) Game.step(dt);
     Game.render();
     if (Game.running) Game.rafId = requestAnimationFrame(frameCallback);
   };
@@ -190,6 +243,12 @@ var Game = {
     // interact key) — which also means a DEAD player still cannot collect, because
     // the ZERO_INTENT substitution above froze them where they stood.
     if (typeof Pickups !== 'undefined') Pickups.update(dt);
+
+    // THE END CONDITIONS RUN LAST (LVL-04/05), after every actor has finished
+    // moving and after the pickup scan — so the proximity test that ends the run
+    // sees the pose the frame actually ended on, exactly like Pickups.update. It
+    // is a no-op in every state but playing.
+    Game.checkEndConditions();
   };
 
   // ===========================================================================
@@ -203,6 +262,16 @@ var Game = {
       Framebuffer.clear(CONFIG.CLEAR_COLOR);
     }
     Framebuffer.present();
+
+    // THE OVERLAY GOES ON AFTER THE PRESENT (D-01). HUD draws on the SECOND
+    // canvas (#hud), a transparent display-resolution overlay, so it composites
+    // through the GPU rather than through buf32 — which is precisely why calling
+    // it here cannot violate the single-putImageData-per-frame contract that the
+    // present() above owns. Guarded by typeof so game.js stays loadable without
+    // js/hud.js, the same discipline every Phase 5 dispatch above uses.
+    if (typeof HUD !== 'undefined' && HUD && typeof HUD.render === 'function') {
+      HUD.render();
+    }
   };
 
   // ===========================================================================
@@ -436,6 +505,179 @@ var Game = {
     box.w = textW + 1; box.h = textH + 1;
     box.scale = scale; box.shade = shade;
     box.drawn = true;
+  };
+
+  // ===========================================================================
+  // THE STATE MACHINE (LVL-04/05/06, 06-CONTEXT D-06).
+  //
+  // The whole arcade loop lives in these five functions: title -> playing on one
+  // click, playing -> victory on reaching the exit, playing -> dead when Combat
+  // latches, and either end screen -> a clean playing world on the next click.
+  // ===========================================================================
+
+  // A null-prototype membership set derived ONCE from Game.STATES, so setState's
+  // validation is a pure lookup rather than a chain of string comparisons — and,
+  // more importantly, so it is DERIVED: adding a state to STATES can never leave
+  // the validator behind rejecting it (threat T-06-01).
+  var IS_STATE = Object.create(null);
+  (function deriveStateSet() {
+    for (var key in Game.STATES) IS_STATE[Game.STATES[key]] = true;
+  })();
+  Game.IS_STATE = IS_STATE;
+
+  // SET STATE — the ONE place Game.state is written.
+  //
+  // Returns whether the state actually changed, so a caller can tell a real
+  // transition from a rejected or redundant one without reading state back.
+  //
+  //   . AN UNKNOWN VALUE IS REJECTED (threat T-06-01). Combined with the loop's
+  //     equality gate, an unknown state can therefore neither be stored nor
+  //     simulate: the machine fails closed at both ends.
+  //   . AN UNCHANGED VALUE IS A NO-OP, so a re-click on the playing screen does
+  //     not re-stamp stateEnteredAt or drain input the player is mid-way through.
+  //   . EVERY REAL TRANSITION DRAINS THE INPUT SOURCE. This is the whole reason
+  //     the drain lives here rather than in one caller: mouse deltas and held keys
+  //     accumulate in the DOM handlers regardless of the state, and nothing samples
+  //     them while the sim is frozen (Game.step is what calls readIntent, and the
+  //     loop is not calling it). Without the drain, a player who wiggled the mouse
+  //     on the title screen would have that whole accumulated delta released as one
+  //     violent spin on the first playing frame (threat T-06-05). Assertion 1n
+  //     pairs the drained case with an undrained control that DOES turn the player.
+  Game.setState = function (next) {
+    if (IS_STATE[next] !== true) return false;
+    if (Game.state === next) return false;
+    Game.state = next;
+    Game.stateEnteredAt = Game.time;
+    resetInput();
+    return true;
+  };
+
+  // Stamp the frozen run result IN PLACE from the live counters. One record,
+  // mutated — never reallocated, so the end screens can hold the reference.
+  function stampResult() {
+    var r = Game.result;
+    r.kills = Game.kills;
+    r.totalKills = Game.totalKills;
+    r.time = Game.time;
+  }
+  Game.stampResult = stampResult;
+
+  // CHECK END CONDITIONS — the last statement of Game.step (LVL-04/LVL-05).
+  //
+  // Returns whether the run ended on this call.
+  //
+  // GATED ON THE PLAYING STATE FIRST, and that gate is doing real work even though
+  // the loop already gates the step: harnesses call Game.step directly, and a
+  // victory screen must not be able to re-stamp its own result 300 frames later
+  // (assertion 1k). Only a run that is actually in progress can end.
+  //
+  // The proximity test is SQUARED ON BOTH SIDES — no square root, no allocation,
+  // once per frame — the same shape Pickups.update's collection scan uses.
+  Game.checkEndConditions = function () {
+    if (Game.state !== Game.STATES.PLAYING) return false;
+
+    // VICTORY (LVL-04): within CONFIG.EXIT_RADIUS of the DERIVED exit marker. A
+    // map with no exit simply has no victory condition — Level.build() has already
+    // pushed a warning about it — rather than an exception in the frame path.
+    var exit = (typeof Level !== 'undefined') ? Level.exit : null;
+    if (exit) {
+      var dx = Player.x - exit.x;
+      var dy = Player.y - exit.y;
+      var r = CONFIG.EXIT_RADIUS;
+      if (dx * dx + dy * dy <= r * r) {
+        stampResult();
+        Game.setState(Game.STATES.VICTORY);
+        return true;
+      }
+    }
+
+    return false;
+  };
+
+  // HANDLE GESTURE (LVL-06 / AUD-03) — THE SINGLE-GESTURE ENTRY POINT.
+  //
+  // main.js assigns this to Input.gestureHook, and Input.onClick invokes it BEFORE
+  // requesting pointer lock, so ONE user click carries the audio unlock, the state
+  // change and the lock request inside one user-activation task.
+  //
+  // THE AUDIO UNLOCK COMES FIRST AND IS UNCONDITIONAL — before any state test.
+  // That is deliberate: the browser only lets an AudioContext resume from inside a
+  // user gesture, so every click must be offered to the audio module regardless of
+  // which screen the player is looking at. A click on the playing screen (a re-lock
+  // after Escape) is exactly when a suspended context most needs the chance.
+  //
+  // Returns whether the gesture changed the game state.
+  Game.handleGesture = function () {
+    if (typeof Sound !== 'undefined' && Sound && typeof Sound.unlock === 'function') {
+      Sound.unlock();
+    }
+
+    var S = Game.STATES;
+    if (Game.state === S.TITLE) return Game.setState(S.PLAYING);
+    if (Game.state === S.VICTORY || Game.state === S.DEAD) {
+      Game.restart();
+      return true;
+    }
+    // In the playing state the click is ONLY a re-lock (and the unlock above).
+    return false;
+  };
+
+  // RESTART — rebuild the world to a clean initial state and return to play.
+  //
+  // THE ORDER IS LOAD-BEARING, top to bottom:
+  //
+  //   1. Game.time = 0 FIRST, because everything stamped below reads it:
+  //      stateEnteredAt, Combat.lastDamageAt's -1 sentinel, the message ring's
+  //      posting times. Zeroing it afterwards would leave stamps in the future of
+  //      a clock that had gone backwards, and every age comparison in the project
+  //      would read negative.
+  //   2. Level.build() — reparse the map. It reassigns Level.cells and
+  //      Level.spawns and re-derives Level.exit, so everything spawn-derived below
+  //      must come after it.
+  //   3. Player.spawn() — the pose, from the freshly parsed Level.playerStart.
+  //   4. Combat.reset() — the stats, from CONFIG. Clears the dead latch, which is
+  //      what lets checkEndConditions stop firing the death branch.
+  //   5. Weapons.reset() — AFTER Player.spawn(), because it seeds the viewmodel's
+  //      travel tracker and bob phase from the CURRENT pose. Before the spawn it
+  //      would seed from the corpse's pose and the gun would snap on frame one.
+  //   6. Game.resetStats() — zero the kill tally and clear the message ring, so
+  //      the new world does not inherit the old one's pickup messages.
+  //   7. Enemies.reset() — the entity world, TOGETHER. It re-seeds the pain
+  //      stream, runs Enemies.build() (which itself calls Entities.build() —
+  //      assigning a FRESH Entities.list — adopts the enemy billboards and sets
+  //      Game.totalKills) and THEN calls Pickups.build(). That chain is the whole
+  //      reason there is no orphan: every view derived from Entities.list is
+  //      rebuilt in the same breath as the list itself (threat T-06-04). Calling
+  //      Entities.build() here instead would leave Pickups.list holding entities
+  //      the rebuild had already thrown away — assertion 1m proves exactly that
+  //      as its control.
+  //   8. Sound.reset() / HUD.reset() — clear the recorders and the derived overlay
+  //      bookkeeping, under typeof guards so game.js stays loadable without them.
+  //   9. setState(PLAYING) LAST, so the transition (and its input drain) happens
+  //      against a world that is already fully rebuilt.
+  Game.restart = function () {
+    Game.time = 0;
+
+    if (typeof Level !== 'undefined') Level.build();
+    if (typeof Player !== 'undefined') Player.spawn();
+    if (typeof Combat !== 'undefined') Combat.reset();
+    if (typeof Weapons !== 'undefined') Weapons.reset();
+    Game.resetStats();
+    if (typeof Enemies !== 'undefined') Enemies.reset();
+
+    if (typeof Sound !== 'undefined' && Sound && typeof Sound.reset === 'function') {
+      Sound.reset();
+    }
+    if (typeof HUD !== 'undefined' && HUD && typeof HUD.reset === 'function') {
+      HUD.reset();
+    }
+
+    // Drain unconditionally as well as through setState: a restart requested from
+    // the PLAYING state (which setState would correctly no-op) must still not hand
+    // the fresh world a stale accumulated delta.
+    resetInput();
+    Game.setState(Game.STATES.PLAYING);
+    return Game;
   };
 
   // ===========================================================================

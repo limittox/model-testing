@@ -73,6 +73,19 @@ window.addEventListener('load', function () {
   TopDown.ENABLED = false;
   Game.view = Raycaster;
 
+  // PHASE 6 SINGLE-GESTURE SEAM (LVL-06 / AUD-03). Input.onClick invokes this hook
+  // BEFORE it requests pointer lock, so ONE click on the canvas starts play,
+  // unlocks the audio and captures the mouse inside a single user activation.
+  // Assigning the function here (rather than input.js reaching for Game) is what
+  // keeps input.js ignorant of the state machine.
+  Input.gestureHook = Game.handleGesture;
+
+  // Clear the HUD overlay's recorded bookkeeping and string caches before the first
+  // frame paints. The boot state is deliberately LEFT AT Game.STATES.TITLE — the
+  // first thing a player sees is the title screen with the controls on it, over a
+  // fully rendered but FROZEN world, and their first click is what starts the run.
+  HUD.reset();
+
   // PHASE 4 SPRITE SEAM: the sprite pass runs INSIDE Raycaster.render() (its last
   // statement), after the wall pass fills the z-buffer and before Game.render's
   // single present(). This keeps Game.view === Raycaster and one present per

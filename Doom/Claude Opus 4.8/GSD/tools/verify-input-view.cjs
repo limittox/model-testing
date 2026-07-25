@@ -37,6 +37,16 @@ const { boot, assert, finish } = require('./boot.cjs');
 const h = boot({});
 h.fireLoad();
 
+// SCENARIO SETUP (Phase 6, 06-01) — NOT an assertion change.
+// The game now boots to a TITLE screen, and Game.frame gates the STEP on
+// Game.state === playing (render and present stay unconditional). Every Phase 1-5
+// scenario in this file is a GAMEPLAY scenario, so enter the playing state here,
+// once, immediately after the boot. Game.step itself is deliberately UN-GATED, so
+// the sections that drive it directly are unaffected either way; this line is what
+// keeps the raf-driven drives advancing the simulation. tools/verify-state.cjs owns
+// proving the gate (with a paired control that the same frames freeze in title).
+h.sandbox.Game.setState('playing');
+
 const s = h.sandbox;
 const CONFIG = s.CONFIG;
 const Level = s.Level;
@@ -71,19 +81,21 @@ const step = (ms) => raf.step(ms);
   // Phase 3 inserted js/raycaster.js after topdown and before game; Phase 4
   // inserted js/entities.js after raycaster and before game; Phase 5 inserted
   // js/combat.js then js/enemies.js (05-01), js/weapons.js (05-02), and finally
-  // js/sound.js + js/pickups.js (05-04) after entities and before game (18
-  // scripts). The order is load-bearing: enemies.js adopts the entities
-  // entities.js built and calls Combat.damagePlayer, weapons.js calls
-  // Enemies.hurt and reads Combat.ammo, pickups.js adopts pickup entities, routes
-  // its effects through Combat grants and calls the Sound hook loaded just before
-  // it, and game.js dispatches all of them.
+  // js/sound.js + js/pickups.js (05-04) after entities and before game; PHASE 6
+  // (06-01) inserted js/hud.js after pickups and before game (19 scripts). The
+  // order is load-bearing: enemies.js adopts the entities entities.js built and
+  // calls Combat.damagePlayer, weapons.js calls Enemies.hurt and reads
+  // Combat.ammo, pickups.js adopts pickup entities, routes its effects through
+  // Combat grants and calls the Sound hook loaded just before it, hud.js is
+  // DISPATCHED by game.js (so it must exist first) while reading CONFIG/Game only
+  // at call time, and game.js dispatches all of them.
   const expected = ['config', 'framebuffer', 'textures', 'sprites', 'preview',
     'level', 'player', 'input', 'topdown', 'raycaster', 'entities', 'combat',
-    'enemies', 'weapons', 'sound', 'pickups', 'game', 'main'];
+    'enemies', 'weapons', 'sound', 'pickups', 'hud', 'game', 'main'];
   const got = h.scriptOrder.map((src) => src.replace(/^js\//, '').replace(/\.js$/i, ''));
   const orderOk = got.length === expected.length &&
     expected.every((name, i) => got[i] === name);
-  assert(orderOk, '1a. index.html loads the 18 scripts in the exact shipped order (combat + enemies + weapons + sound + pickups after entities, before game)');
+  assert(orderOk, '1a. index.html loads the 19 scripts in the exact shipped order (combat + enemies + weapons + sound + pickups + hud after entities, before game)');
 
   // Classic scripts only: no module loader anywhere in the shipped script tags.
   const classicOk = !/<script\b[^>]*\btype\s*=\s*"module"/i.test(h.html);

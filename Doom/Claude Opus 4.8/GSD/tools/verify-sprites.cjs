@@ -44,6 +44,16 @@ const { boot, assert, finish, GAME_DIR } = require('./boot.cjs');
 const h = boot({});
 h.fireLoad();
 
+// SCENARIO SETUP (Phase 6, 06-01) — NOT an assertion change.
+// The game now boots to a TITLE screen, and Game.frame gates the STEP on
+// Game.state === playing (render and present stay unconditional). Every Phase 1-5
+// scenario in this file is a GAMEPLAY scenario, so enter the playing state here,
+// once, immediately after the boot. Game.step itself is deliberately UN-GATED, so
+// the sections that drive it directly are unaffected either way; this line is what
+// keeps the raf-driven drives advancing the simulation. tools/verify-state.cjs owns
+// proving the gate (with a paired control that the same frames freeze in title).
+h.sandbox.Game.setState('playing');
+
 // Phase-5 (05-02) regression update, the same kind of scoping verify-render applies
 // to the sprite seam. main.js has pushed the weapon viewmodel onto
 // Raycaster.overlayPasses, which draws over the bottom-centre of every frame and
