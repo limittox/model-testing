@@ -178,6 +178,31 @@ var Enemies = {
   };
 
   // ===========================================================================
+  // RESET — rebuild the whole entity world from the spawn table, TOGETHER.
+  //
+  // Production code (a restart uses it), and the harness's clean scenario
+  // primitive. Both lists are truncated IN PLACE first, PRESERVING their array
+  // identities, so anything holding a reference keeps watching the live list.
+  //
+  // WHY THE Pickups HOOK: Entities.build() assigns a FRESH Entities.list array.
+  // Every view derived from it must therefore be rebuilt in the same breath, or
+  // a behaviour module is left holding entities that the rebuild orphaned —
+  // simulated but never drawn, because they are no longer in the list the sprite
+  // pass reads. The typeof guard is what keeps js/enemies.js loadable in
+  // isolation and lets THIS plan ship with no pickup code at all; plan 05-04
+  // relies on the hook being here.
+  // ===========================================================================
+  Enemies.reset = function () {
+    Enemies.list.length = 0;
+    Enemies.projectiles.length = 0;
+    Enemies.build();
+    if (typeof Pickups !== 'undefined' && Pickups && typeof Pickups.build === 'function') {
+      Pickups.build();
+    }
+    return Enemies.list;
+  };
+
+  // ===========================================================================
   // ADD — the scenario primitive: ONE new enemy with no level marker. Pushes to
   // BOTH lists so it is simulated and drawn like any adopted enemy.
   // ===========================================================================
