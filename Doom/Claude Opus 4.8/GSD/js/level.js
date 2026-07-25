@@ -54,31 +54,71 @@ var Level = {
   //
   // The border characters here are cosmetic only: build() forces the outer ring
   // solid regardless of what these rows say.
-  // ---------------------------------------------------------------------------
+  //
+  // ===========================================================================
+  // POPULATION (LVL-02, 05-04 — D-08). 8 enemy markers and 9 item markers, placed
+  // for PACING rather than sprinkled: every named region has a fight, ammo sits at
+  // the mouth of each long corridor where a player will be running dry, and health
+  // sits after the heaviest engagements.
+  //
+  //   THE HARD CONSTRAINT: a marker may ONLY replace a FLOOR character. Marker
+  //   cells parse as plain floor (contract 4 above), so obeying that keeps
+  //   Level.cells BYTE-IDENTICAL — which is why every Phase 2 and Phase 3
+  //   wall-dependent contract (LANDMARKS, the motion assertions, the exact-pixel
+  //   render proofs) survives this edit with no change at all. The population
+  //   commit was verified with a byte-for-byte diff of the parsed grid; the
+  //   harness re-proves it every run by re-deriving LANDMARKS and by
+  //   verify-render/verify-motion staying green (threat T-05-23).
+  //
+  //   ENEMIES (8) — none within 3 cells of the player start, so nothing shoots the
+  //   player at spawn:
+  //     (7,3) (6,7)     west start room, far side — the first fight, and one of
+  //                     them stands over the start room's medkit
+  //     (20,2) (16,4)   north-east hall, each covering one of its tech pillars
+  //     (4,12)          guarding the one-cell col-4 corridor
+  //     (18,10)         guarding the one-cell col-18 corridor
+  //     (6,18) (14,20)  south chamber, the second covering the approach to the
+  //                     exit alcove
+  //
+  //   ITEMS (9) — none within 2 cells of the player start:
+  //     h (5,7)         start room, behind the first fight
+  //     m (14,2)        north-east hall
+  //     m (4,9)         head of the col-4 corridor
+  //     m (18,8)        head of the col-18 corridor
+  //     h (18,16)       the far end of the col-18 corridor, after its guard
+  //     g (10,19)       the shotgun: reachable by the SHORT route (start room ->
+  //                     col-4 corridor -> south chamber), so it lands early enough
+  //                     to matter, but only after the start-room and corridor fights
+  //     h (11,18)       south chamber, after the (6,18) fight
+  //     r (12,21)       armor, deep in the south chamber
+  //     h (4,22)        the reward medkit, deepest corner of the south chamber
+  //
+  //   The exit marker stays exactly where it was: Phase 6 owns LVL-03/04.
+  // ===========================================================================
   SOURCE: [
     '########################', //  0
     '#........####..........#', //  1
     '#.P......####.m.....E..#', //  2
-    '#........+###....=.....#', //  3
+    '#......E.+###....=.....#', //  3
     '#...............E......#', //  4
     '#........+###.......=..#', //  5
     '#.....%..####..........#', //  6
-    '#....h...####..........#', //  7
-    '#........########=.=####', //  8
-    '####.############=.=####', //  9
-    '####.############=.=####', // 10
+    '#....hE..####..........#', //  7
+    '#........########=m=####', //  8
+    '####m############=.=####', //  9
+    '####.############=E=####', // 10
     '####.############=.=####', // 11
-    '####.############=.=####', // 12
+    '####E############=.=####', // 12
     '####.############=.=####', // 13
     '###%.%%%%%%%%%%##=.=####', // 14
     '###............##=.=####', // 15
-    '###............##=.=####', // 16
+    '###............##=h=####', // 16
     '###................#####', // 17
-    '###...E.%......#########', // 18
+    '###...E.%..h...#########', // 18
     '###.......g....####!!###', // 19
-    '###................X!###', // 20
+    '###...........E....X!###', // 20
     '###.........r..####!!###', // 21
-    '###............#########', // 22
+    '###.h..........#########', // 22
     '########################'  // 23
   ],
 

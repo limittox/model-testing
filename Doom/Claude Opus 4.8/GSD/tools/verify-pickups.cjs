@@ -619,4 +619,113 @@ console.log('    openCell ' + JSON.stringify(OC));
     '1k-vii. re-running the rebuild PAIR restores the view to the live entities');
 })();
 
+// ===========================================================================
+// 2. THE LVL-02 POPULATION, AS THE ENTITY WORLD SEES IT (D-08).
+//
+//    verify-level owns the MARKER census (exact counts, spacing, every marker on
+//    open floor, reachability by flood fill). This section owns what the runtime
+//    makes of it: that the number of enemies the AI adopted is the number the kill
+//    tally counts out of, that the pickup view holds one item per item marker, and
+//    — the load-bearing one — that Entities.list is EXACTLY the spawn-derived
+//    billboards plus the projectile pool.
+//
+//    2c IS AN EXACT EQUALITY, NOT A LOWER BOUND. A list LONGER than the formula
+//    means a behaviour module appended its own billboards instead of adopting the
+//    ones Entities.build() emitted. With 8 enemies and 9 items that would be 17
+//    permanent inert ghosts, each frozen at a spawn point and drawn on top of the
+//    live entity — which is exactly the failure the `kind` adoption handle exists
+//    to make impossible, and exactly the failure a >= assertion would not catch.
+// ===========================================================================
+(function () {
+  // A pristine world: a full rebuild through the production path, with NOTHING
+  // truncated (this section is about what boot actually produces).
+  Level.build();
+  Combat.reset();
+  Enemies.reset();
+
+  const census = markerCensus();
+  let enemyMarkers = 0;
+  for (const sp of Level.spawns) if (sp.type === 'enemy') enemyMarkers += 1;
+
+  assert(Game.totalKills === enemyMarkers && enemyMarkers > 0,
+    '2a. LVL-02/ENEM-05: after Enemies.build() Game.totalKills (' + Game.totalKills +
+    ') equals the ENEMY MARKER COUNT (' + enemyMarkers + ') — the tally is out of the ' +
+    'real populated total');
+  assert(Enemies.list.length === enemyMarkers,
+    '2a-ii. Enemies.list holds exactly one entry per enemy marker (' +
+    Enemies.list.length + '/' + enemyMarkers + ')');
+  assert(Game.kills === 0,
+    '2a-iii. Game.kills is 0 at build (' + Game.kills + ') — a rebuild resurrects ' +
+    'every enemy, so the tally cannot be carried across it');
+
+  assert(Pickups.list.length === census.total && census.total > 0,
+    '2b. LVL-02: Pickups.list holds exactly one entry per ITEM marker (' +
+    Pickups.list.length + '/' + census.total + ': health ' + census.health + ', ammo ' +
+    census.ammo + ', armor ' + census.armor + ', shotgun ' + census.shotgun + ')');
+
+  // THE EXACT EQUALITY. The spawn-derived count is computed from Level.spawns —
+  // the entries that have a SPRITE_FOR descriptor — never hardcoded, so a future
+  // map edit moves the expectation with the map instead of breaking the proof.
+  let spawnDerived = 0;
+  for (const sp of Level.spawns) if (Entities.SPRITE_FOR[sp.type]) spawnDerived += 1;
+  assert(spawnDerived === enemyMarkers + census.total,
+    '2c-0. the spawn-derived billboard count is the enemies PLUS the items (' +
+    enemyMarkers + ' + ' + census.total + ' = ' + spawnDerived + ') — exit and player ' +
+    'produce no billboard');
+  assert(Entities.list.length === spawnDerived + CONFIG.PROJ_POOL,
+    '2c. LVL-02: Entities.list.length is EXACTLY the spawn-derived billboards plus ' +
+    'CONFIG.PROJ_POOL (' + spawnDerived + ' + ' + CONFIG.PROJ_POOL + ' = ' +
+    (spawnDerived + CONFIG.PROJ_POOL) + ', got ' + Entities.list.length +
+    ') — nobody appended a duplicate billboard');
+
+  // THE GHOST DETECTOR (the same shape 05-01 assertion 1h uses): no two entities
+  // that are not explicitly inactive may share BOTH a position and a sprite name.
+  // A duplicate billboard is invisible to a length check the moment the length
+  // expectation is itself wrong, so this is the independent statement of the same
+  // property.
+  const seen = new Map();
+  const ghosts = [];
+  for (const e of Entities.list) {
+    if (e.active === false) continue;
+    const key = e.x + ',' + e.y + '|' + e.sprite;
+    if (seen.has(key)) ghosts.push(key);
+    else seen.set(key, e);
+  }
+  assert(ghosts.length === 0,
+    '2c-ii. no two ACTIVE entities share both a position and a sprite name (' +
+    seen.size + ' distinct)' + (ghosts.length ? ' [ghosts: ' + ghosts.join(' ') + ']' : ''));
+
+  // Every spawn-derived entity stands on its marker's CELL CENTRE, and every item
+  // marker has exactly one entity on it. This is what ties the runtime world back
+  // to the authored map cell for cell.
+  let placedOk = true, missing = null;
+  for (const sp of Level.spawns) {
+    const desc = Entities.SPRITE_FOR[sp.type];
+    if (!desc) continue;
+    const hits = Entities.list.filter((e) => e.x === sp.x && e.y === sp.y &&
+      e.kind === desc.kind);
+    if (hits.length !== 1) { placedOk = false; missing = sp.type + '@(' + sp.mx + ',' + sp.my + ')x' + hits.length; }
+  }
+  assert(placedOk,
+    '2d. LVL-02: every enemy and item marker has EXACTLY ONE entity standing on its ' +
+    'cell centre' + (placedOk ? '' : ' — offender ' + missing));
+
+  // And the population is genuinely playable from the runtime's point of view:
+  // every item can be collected by walking onto it (verify-level's flood fill
+  // proves the cells are reachable; this proves the collection works there).
+  Enemies.list.length = 0;                 // items only — no fireballs mid-proof
+  const itemCount = Pickups.list.length;
+  for (const e of Pickups.list) {
+    Player.x = e.x;
+    Player.y = e.y;
+    Game.step(FRAME_DT);
+  }
+  assert(Pickups.collected === itemCount,
+    '2e. LVL-02: all ' + itemCount + ' populated items collect when walked onto (' +
+    Pickups.collected + ') — the population is live, not decorative');
+
+  // Restore a coherent world.
+  scenario(Level.playerStart.x, Level.playerStart.y);
+})();
+
 finish('ALL_PICKUP_CONTRACTS_PASS');

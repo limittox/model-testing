@@ -202,6 +202,89 @@ assert(Level.spawns.every((s) => s.type !== 'player'),
   '8i. the player marker is NOT in spawns — it lives in playerStart');
 
 // ===========================================================================
+// 8j-8o. THE LVL-02 POPULATION CENSUS (05-04, D-08).
+//
+//   These are EXACT equalities, not lower bounds. The marker set is the single
+//   source of the level's difficulty AND of Game.totalKills, so a hand-edit that
+//   silently drops or duplicates a marker has to fail HERE — loudly, in the level
+//   harness — rather than surface two plans later as a kill tally that can never
+//   be reached.
+//
+//   The population edit replaced FLOOR characters only, which is what keeps
+//   Level.cells byte-identical and every wall-dependent contract intact (threat
+//   T-05-23). 8m re-proves the "markers are not walls" half of that directly, and
+//   verify-render / verify-motion are the independent check on the other half.
+// ===========================================================================
+const EXPECTED_ENEMIES = 8;
+const EXPECTED_ITEMS = { health: 4, ammo: 3, armor: 1, shotgun: 1 };
+const EXPECTED_EXITS = 1;
+// No enemy may stand within this many cells of the player start (the player must
+// not be shot at spawn), and no item within this many (an item under the player's
+// feet at spawn is collected before they have moved).
+const MIN_ENEMY_DIST = 3;
+const MIN_ITEM_DIST = 2;
+
+const census = {};
+for (const sp of Level.spawns) census[sp.type] = (census[sp.type] || 0) + 1;
+const censusText = Object.keys(census).sort().map((k) => k + ':' + census[k]).join(' ');
+
+assert(census.enemy === EXPECTED_ENEMIES,
+  '8j. LVL-02: exactly ' + EXPECTED_ENEMIES + ' ENEMY markers (' + census.enemy +
+  ') — this number IS Game.totalKills');
+
+const itemsOk = Object.keys(EXPECTED_ITEMS)
+  .every((t) => census[t] === EXPECTED_ITEMS[t]);
+const itemTotal = Object.keys(EXPECTED_ITEMS)
+  .reduce((n, t) => n + (census[t] || 0), 0);
+const itemExpectedTotal = Object.keys(EXPECTED_ITEMS)
+  .reduce((n, t) => n + EXPECTED_ITEMS[t], 0);
+assert(itemsOk && itemTotal === itemExpectedTotal,
+  '8k. LVL-02: exactly ' + JSON.stringify(EXPECTED_ITEMS) + ' item markers, ' +
+  itemExpectedTotal + ' in total (got ' + itemTotal + '; full census ' + censusText + ')');
+
+assert(census.exit === EXPECTED_EXITS,
+  '8l. the exit marker is still there and still unique (' + census.exit +
+  ') — Phase 6 owns LVL-03/04, so this plan left it exactly where it was');
+
+// Every marker cell — the player start included — must be open floor. This is the
+// direct statement of "a marker replaced a floor character, never a wall".
+let allFloor = Level.cells[idx(ps.mx, ps.my)] === 0;
+for (const sp of Level.spawns) if (Level.cells[idx(sp.mx, sp.my)] !== 0) allFloor = false;
+assert(allFloor,
+  '8m. LVL-02: every one of the ' + (Level.spawns.length + 1) +
+  ' marker cells (player start included) is OPEN FLOOR — no marker replaced a wall');
+
+// No two markers share a cell. A doubled cell would be a silently swallowed
+// marker: the second character wins the parse and the first item simply vanishes.
+const cellKeys = [ps.mx + ',' + ps.my].concat(Level.spawns.map((sp) => sp.mx + ',' + sp.my));
+const dupes = cellKeys.filter((k, i) => cellKeys.indexOf(k) !== i);
+assert(dupes.length === 0,
+  '8n. LVL-02: no two markers share a cell (' + cellKeys.length + ' distinct)' +
+  (dupes.length ? ' [duplicated: ' + dupes.join(' ') + ']' : ''));
+
+// Spacing from the player start, measured between cell CENTRES.
+const dist = (sp) => Math.hypot(sp.x - ps.x, sp.y - ps.y);
+const nearEnemies = Level.spawns
+  .filter((sp) => sp.type === 'enemy' && dist(sp) < MIN_ENEMY_DIST)
+  .map((sp) => '(' + sp.mx + ',' + sp.my + ')@' + dist(sp).toFixed(2));
+const itemTypes = Object.keys(EXPECTED_ITEMS);
+const nearItems = Level.spawns
+  .filter((sp) => itemTypes.indexOf(sp.type) >= 0 && dist(sp) < MIN_ITEM_DIST)
+  .map((sp) => '(' + sp.mx + ',' + sp.my + ')@' + dist(sp).toFixed(2));
+const closestEnemy = Math.min.apply(null,
+  Level.spawns.filter((sp) => sp.type === 'enemy').map(dist));
+const closestItem = Math.min.apply(null,
+  Level.spawns.filter((sp) => itemTypes.indexOf(sp.type) >= 0).map(dist));
+assert(nearEnemies.length === 0,
+  '8o. LVL-02: no enemy marker is within ' + MIN_ENEMY_DIST + ' cells of the player ' +
+  'start (nearest ' + closestEnemy.toFixed(2) + ') — the player is not shot at spawn' +
+  (nearEnemies.length ? ' [' + nearEnemies.join(' ') + ']' : ''));
+assert(nearItems.length === 0,
+  '8p. LVL-02: no item marker is within ' + MIN_ITEM_DIST + ' cells of the player ' +
+  'start (nearest ' + closestItem.toFixed(2) + ')' +
+  (nearItems.length ? ' [' + nearItems.join(' ') + ']' : ''));
+
+// ===========================================================================
 // 9. Rooms and corridors (LVL-01)
 // ===========================================================================
 function blocksOfSize(n) {
