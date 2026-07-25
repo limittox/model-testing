@@ -39,9 +39,9 @@ All code lives under `Doom/Claude Opus 4.8/GSD/`.
 
 ### Enemies
 
-- [ ] **ENEM-01**: Enemies follow an AI state machine: idle → chase (on line-of-sight) → attack, on an attack cooldown
-- [ ] **ENEM-02**: Enemies move toward the player when they have line of sight, respecting wall collision
-- [ ] **ENEM-03**: Enemies attack the player (ranged projectile or melee) and reduce player health
+- [x] **ENEM-01**: Enemies follow an AI state machine: idle → chase (on line-of-sight) → attack, on an attack cooldown
+- [x] **ENEM-02**: Enemies move toward the player when they have line of sight, respecting wall collision
+- [x] **ENEM-03**: Enemies attack the player (ranged projectile or melee) and reduce player health
 - [ ] **ENEM-04**: Enemies take damage from the player, show a hit reaction, and die with a multi-frame death animation leaving a corpse
 - [ ] **ENEM-05**: A kill count tracks enemies defeated out of the total
 
@@ -137,9 +137,9 @@ Which phases cover which requirements. Populated during roadmap creation.
 | ENT-01 | Phase 4 | Complete |
 | ENT-02 | Phase 4 | Complete |
 | ENT-03 | Phase 4 | Complete |
-| ENEM-01 | Phase 5 | Pending |
-| ENEM-02 | Phase 5 | Pending |
-| ENEM-03 | Phase 5 | Pending |
+| ENEM-01 | Phase 5 | Complete |
+| ENEM-02 | Phase 5 | Complete |
+| ENEM-03 | Phase 5 | Complete |
 | ENEM-04 | Phase 5 | Pending |
 | ENEM-05 | Phase 5 | Pending |
 | WEAP-01 | Phase 5 | Pending |

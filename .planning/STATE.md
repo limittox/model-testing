@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 04
-current_phase_name: sprite-rendering-entities
-status: verifying
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-07-25T02:04:18.896Z"
+current_phase: 05
+current_phase_name: enemy-ai-weapons-pickups
+status: executing
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-07-25T03:36:36.874Z"
 last_activity: 2026-07-25
-last_activity_desc: Phase 04 execution started
+last_activity_desc: Phase 05 execution started
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 4
-  total_plans: 10
-  completed_plans: 10
+  total_plans: 14
+  completed_plans: 11
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-23)
 
 **Core value:** You can open it in a browser and immediately play a fun, recognizably-Doom first-person shooter — move, fight, shoot, manage health/ammo, and win or die.
-**Current focus:** Phase 04 — sprite-rendering-entities
+**Current focus:** Phase 05 — enemy-ai-weapons-pickups
 
 ## Current Position
 
-Phase: 04 (sprite-rendering-entities) — EXECUTING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
-Last activity: 2026-07-25 — Phase 04 execution started
+Phase: 05 (enemy-ai-weapons-pickups) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-07-25 — Phase 05 execution started
 
-Progress: [██████████] 100%
+Progress: [████████░░] 79%
 
 ## Performance Metrics
 
@@ -69,6 +69,7 @@ Progress: [██████████] 100%
 | Phase 04 P01 | 22min | 2 tasks | 7 files |
 | Phase 04 P02 | 14min | 2 tasks | 2 files |
 | Phase 04 P02 | 14min | 2 tasks | 2 files |
+| Phase 05 P01 | ~65 min | 4 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -103,6 +104,11 @@ Recent decisions affecting current work:
 - [Phase ?]: 03-03: floor/ceiling whole-frame coverage is asserted with a distinct seeded sentinel, never a CLEAR_COLOR scan (a shaded texel can coincide with CLEAR_COLOR)
 - [Phase ?]: 03-03: CONFIG.FLOOR_CAST=false fallback shades flat FLOOR/CEIL colors via the same shadeFactor(rowDistance,false) as the textured cast — a real exercised path, not dead code
 - [Phase ?]: Phase 4 sprite tracer: unshaded billboard pass wired via Raycaster.spritePass seam; fog deferred to 04-02
+- [Phase ?]: Enemy AI adopts the billboards Entities.build emitted (matched by a kind field) rather than appending duplicates - one entity per enemy, updated and drawn once
+- [Phase ?]: Enemies.update skips only the terminal corpse state, never the alive flag, so 05-03's death animation stays reachable
+- [Phase ?]: Enemy corner recovery is two-tier: full-speed free-axis slide first, latched quarter-turn wall-follow only when both axes are walled (a quarter-turn-only recovery jams an off-centre enemy at a one-cell corridor mouth)
+- [Phase ?]: Attack cooldown is charged on entering the attack state, so the firing period is exactly ENEMY_ATTACK_COOLDOWN rather than COOLDOWN+WINDUP
+- [Phase ?]: Game.time is simulation time accumulated inside Game.step, so a direct Game.step(dt) advances the clock and age-based proofs are non-vacuous
 
 ### Pending Todos
 
@@ -127,6 +133,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-25T01:48:49.138Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-07-25T03:36:23.909Z
+Stopped at: Completed 05-01-PLAN.md
 Resume file: None
