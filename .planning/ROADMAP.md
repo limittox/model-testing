@@ -115,13 +115,13 @@ Plans:
   3. Walking over health, armor, ammo, and shotgun pickups collects them and applies the effect (heal to max, armor absorbs a portion of damage, ammo/shells replenished, shotgun granted).
   4. The level is populated with enemy spawns and pickups at designed positions, and a kill count tracks enemies defeated out of the total.
 
-**Plans**: 2/4 plans executed
+**Plans**: 3/4 plans executed
 
 Plans:
 
 - [x] 05-01-PLAN.md — Tracer: enemy AI state machine (idle/chase/attack) with grid line-of-sight, shared per-axis wall collision, pooled fireball projectile, player combat state + armor absorption; enemy walk/attack frames (wave 1)
 - [x] 05-02-PLAN.md — Hitscan weapons: pistol (single ray) + shotgun (multi-pellet spread), DDA wall-stop, ammo gating, weapon switching, viewmodel bob + recoil + muzzle flash via an ordered overlay seam (wave 2)
-- [ ] 05-03-PLAN.md — Enemy damage response: chance-based pain stagger, multi-frame death animation, non-targetable corpse, kill count out of the spawn-derived total (wave 3)
+- [x] 05-03-PLAN.md — Enemy damage response: chance-based pain stagger, multi-frame death animation, non-targetable corpse, kill count out of the spawn-derived total (wave 3)
 - [ ] 05-04-PLAN.md — Pickups (health/armor/ammo/shotgun) collection + effects, message queue + sound hook + framebuffer message line, and the populated level (8 enemies, 9 pickups) (wave 4)
 
 ### Phase 6: HUD, Audio & Game-State Machine
@@ -158,5 +158,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 2. Level, Player Movement & Input | 3/3 | In Progress|  |
 | 3. Core Renderer — Walls, Floors & Ceilings | 3/3 | In Progress|  |
 | 4. Sprite Rendering & Entities | 2/2 | In Progress|  |
-| 5. Enemy AI, Weapons & Pickups | 2/4 | In Progress|  |
+| 5. Enemy AI, Weapons & Pickups | 3/4 | In Progress|  |
 | 6. HUD, Audio & Game-State Machine | 0/3 | Not started | - |
