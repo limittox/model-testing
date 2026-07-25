@@ -39,6 +39,15 @@ const { boot, assert, finish, GAME_DIR } = require('./boot.cjs');
 const h = boot({});
 h.fireLoad();
 
+// Phase-4 regression update (mirrors the Phase-3 view-swap regression update):
+// this harness verifies the Phase-3 wall/floor/z-buffer render contracts in
+// ISOLATION with exact-pixel assertions. main.js has just wired
+// Raycaster.spritePass = Entities.render; disabling it here keeps those exact
+// wall/floor pixels unperturbed. The Phase-4 sprite contracts live in
+// tools/verify-sprites.cjs (which re-enables the seam). No existing assertion is
+// weakened — the sprite seam simply does not run in the wall/floor harness.
+h.sandbox.Raycaster.spritePass = null;
+
 const s = h.sandbox;
 const CONFIG = s.CONFIG;
 const Level = s.Level;

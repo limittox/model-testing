@@ -282,4 +282,163 @@ function setEntities(list) {
   assert(proven, '2k. at least one opaque, occlusion-passing front-sprite texel was located and verified');
 })();
 
+// ---------------------------------------------------------------------------
+// The opaque-texel bounding box of a sprite asset (independent of any render).
+// Used by the scaling + squareness proofs to relate DRAWN pixel extents back to
+// the sprite's own silhouette, so the proofs survive a non-full-frame sprite.
+// ---------------------------------------------------------------------------
+function spriteTexelBBox(tex) {
+  const TEXW = tex.width, TEXH = tex.height, tb = tex.buf32;
+  let minX = TEXW, maxX = -1, minY = TEXH, maxY = -1;
+  for (let ty = 0; ty < TEXH; ty++) {
+    for (let tx = 0; tx < TEXW; tx++) {
+      if (((tb[ty * TEXW + tx] >>> 24) & 0xff) >= Sprites.ALPHA_KEY) {
+        if (tx < minX) minX = tx; if (tx > maxX) maxX = tx;
+        if (ty < minY) minY = ty; if (ty > maxY) maxY = ty;
+      }
+    }
+  }
+  return { minX, maxX, minY, maxY, w: maxX - minX + 1, h: maxY - minY + 1 };
+}
+
+// The drawn (sprite-touched) bounding box between bg and cur.
+function drawnBBox(bg, cur, W, H) {
+  let minX = W, maxX = -1, minY = H, maxY = -1;
+  for (let y = 0; y < H; y++) {
+    const row = y * W;
+    for (let x = 0; x < W; x++) {
+      if (cur[row + x] !== bg[row + x]) {
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+    }
+  }
+  return { minX, maxX, minY, maxY, w: maxX - minX + 1, h: maxY - minY + 1 };
+}
+
+// The tallest drawn column's vertical extent (robust "drawn pixel-height").
+function drawnColumnExtent(bg, cur, W, H) {
+  let best = 0;
+  for (let x = 0; x < W; x++) {
+    let lo = -1, hi = -1;
+    for (let y = 0; y < H; y++) {
+      if (cur[y * W + x] !== bg[y * W + x]) { if (lo < 0) lo = y; hi = y; }
+    }
+    if (lo >= 0 && (hi - lo + 1) > best) best = hi - lo + 1;
+  }
+  return best;
+}
+
+// ===========================================================================
+// 3. PROOF B — DISTANCE SCALING ~2:1 (ENT-01, 04-CONTEXT decision 7b). The SAME
+//    enemy directly ahead (clear LOS on the long open row 4) at distance d and
+//    2d has drawn pixel-height in ~2:1 ratio, cross-checked against the locked
+//    projectSprite() spriteDim (which uses H). Player at (2.5,4.5) facing +x;
+//    enemy at (6.5,4.5) [d=4] and (10.5,4.5) [2d=8].
+// ===========================================================================
+(function () {
+  const W = Framebuffer.width, H = Framebuffer.height;
+
+  assert(Level.cellAt(6, 4) === 0 && Level.cellAt(10, 4) === 0 &&
+         Level.lineOfSight(2.5, 4.5, 6.5, 4.5) && Level.lineOfSight(2.5, 4.5, 10.5, 4.5),
+    '3a. precondition: enemy positions at d and 2d are open floor with clear LOS');
+
+  Player.x = 2.5; Player.y = 4.5;
+  Player.setDir(1, 0);
+  const pose = poseOf();
+
+  const near = { x: 6.5,  y: 4.5, sprite: 'enemy', scale: 1.0, onFloor: true };  // d = 4
+  const far  = { x: 10.5, y: 4.5, sprite: 'enemy', scale: 1.0, onFloor: true };  // 2d = 8
+
+  const pNear = projectSprite(pose, near, W, H);
+  const pFar = projectSprite(pose, far, W, H);
+  assert(Math.abs(pNear.transformY - 4) < 1e-9 && Math.abs(pFar.transformY - 8) < 1e-9,
+    '3b. transformY equals the true forward distance (d=4, 2d=8) — projection depth is correct');
+
+  // The locked formula: spriteDim uses H, so it halves as distance doubles.
+  const dimRatio = pNear.spriteDim / pFar.spriteDim;
+  assert(dimRatio > 1.8 && dimRatio < 2.2,
+    '3c. projectSprite spriteDim(d)/spriteDim(2d) ~ 2 (' + dimRatio.toFixed(3) + ') — H/transformY halves');
+
+  setEntities([near]);
+  let r = renderBgAndSprites();
+  const extNear = drawnColumnExtent(r.bg, r.cur, W, H);
+
+  setEntities([far]);
+  r = renderBgAndSprites();
+  const extFar = drawnColumnExtent(r.bg, r.cur, W, H);
+
+  assert(extNear > 0 && extFar > 0,
+    '3d. both the near and far enemy actually draw (drawn heights ' + extNear + ', ' + extFar + ')');
+
+  const drawnRatio = extNear / extFar;
+  assert(drawnRatio > 1.8 && drawnRatio < 2.2,
+    '3e. ENT-01: the DRAWN pixel-height ratio d:2d ~ 2:1 (' + drawnRatio.toFixed(3) +
+    ') — billboards scale inversely with distance');
+
+  // Tie the drawn output to the locked formula: the drawn height tracks spriteDim
+  // (a fixed silhouette fraction of the frame), so drawn/spriteDim is stable
+  // across the two distances.
+  const fracNear = extNear / pNear.spriteDim;
+  const fracFar = extFar / pFar.spriteDim;
+  assert(Math.abs(fracNear - fracFar) < 0.05,
+    '3f. the drawn-height : spriteDim fraction is stable across d and 2d (' +
+    fracNear.toFixed(3) + ' vs ' + fracFar.toFixed(3) + ') — output tracks the locked projection');
+})();
+
+// ===========================================================================
+// 4. PROOF C — SQUARENESS / H-FOR-BOTH (ENT-01, 04-CONTEXT decision 3). At a
+//    NON-square framebuffer (W=480, H=270) a scale-1 enemy directly ahead is
+//    drawn with EQUAL horizontal and vertical scale (screen HEIGHT drives both).
+//    Falsifiability control: if the projection used W for width, the horizontal
+//    scale — and thus the drawn aspect ratio — would be off by W/H; assert the
+//    ACTUAL drawn ratio matches the H-driven (square-scale) expectation and NOT
+//    the W-driven one.
+// ===========================================================================
+(function () {
+  const W = Framebuffer.width, H = Framebuffer.height;
+  assert(W === 480 && H === 270 && W !== H,
+    '4a. the framebuffer is a NON-square aspect (W=' + W + ', H=' + H + ') so W-vs-H is discriminable');
+
+  Player.x = 2.5; Player.y = 4.5;
+  Player.setDir(1, 0);
+  const pose = poseOf();
+
+  const enemy = { x: 6.5, y: 4.5, sprite: 'enemy', scale: 1.0, onFloor: true }; // d=4, unclamped
+  const p = projectSprite(pose, enemy, W, H);
+
+  // The frame projects fully on-screen (no clamp), so the drawn silhouette bbox
+  // reflects the true horizontal/vertical scale.
+  assert(p.drawStartX > 0 && p.drawEndX < W && p.drawStartY > 0 && p.drawEndY < H,
+    '4b. the scale-1 enemy projects fully on-screen at d=4 (unclamped bbox), so scale is measurable');
+
+  setEntities([enemy]);
+  const r = renderBgAndSprites();
+  const drawn = drawnBBox(r.bg, r.cur, W, H);
+  const texBox = spriteTexelBBox(Sprites.map.enemy);
+
+  // pixels-per-texel horizontally vs vertically. With H driving BOTH, these are
+  // equal (the frame is spriteDim x spriteDim over a TEXW x TEXH source).
+  const pxPerTexX = drawn.w / texBox.w;
+  const pxPerTexY = drawn.h / texBox.h;
+  const scaleRatio = pxPerTexX / pxPerTexY;
+  assert(scaleRatio > 0.9 && scaleRatio < 1.1,
+    '4c. ENT-01: horizontal and vertical pixels-per-texel are EQUAL (ratio ' + scaleRatio.toFixed(3) +
+    ') — the billboard is square; H drives both dimensions');
+
+  // W-vs-H falsifiability control: had width used W instead of H, pxPerTexX would
+  // be scaled by W/H, so the scaleRatio would be ~W/H (1.78), not ~1. Assert the
+  // ACTUAL ratio is far from the W-driven prediction.
+  const wDistortRatio = W / H; // ~1.78
+  assert(Math.abs(scaleRatio - wDistortRatio) > 0.3,
+    '4d. CONTROL: the drawn scale ratio (' + scaleRatio.toFixed(3) + ') does NOT match the W-driven ' +
+    'prediction (~' + wDistortRatio.toFixed(3) + ') — using W would distort width, but H is used');
+
+  // Formula-level control mirroring the pixel proof: spriteDim uses H; the W-based
+  // width would be a different integer.
+  const wBasedDim = Math.abs(Math.floor(W / p.transformY)) * enemy.scale;
+  assert(p.spriteDim !== wBasedDim && p.spriteDim === Math.abs(Math.floor(H / p.transformY)) * enemy.scale,
+    '4e. projectSprite spriteDim uses H (' + p.spriteDim + '), not W (' + wBasedDim + ')');
+})();
+
 finish('ALL_SPRITE_CONTRACTS_PASS');

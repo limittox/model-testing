@@ -68,13 +68,14 @@ const step = (ms) => raf.step(ms);
 //    preview, level, player, input, topdown, game, main, all classic scripts.
 // ===========================================================================
 (function () {
-  // Phase 3 inserted js/raycaster.js after topdown and before game (12 scripts).
+  // Phase 3 inserted js/raycaster.js after topdown and before game; Phase 4
+  // inserted js/entities.js after raycaster and before game (13 scripts).
   const expected = ['config', 'framebuffer', 'textures', 'sprites', 'preview',
-    'level', 'player', 'input', 'topdown', 'raycaster', 'game', 'main'];
+    'level', 'player', 'input', 'topdown', 'raycaster', 'entities', 'game', 'main'];
   const got = h.scriptOrder.map((src) => src.replace(/^js\//, '').replace(/\.js$/i, ''));
   const orderOk = got.length === expected.length &&
     expected.every((name, i) => got[i] === name);
-  assert(orderOk, '1a. index.html loads the 12 scripts in the exact shipped order (raycaster after topdown)');
+  assert(orderOk, '1a. index.html loads the 13 scripts in the exact shipped order (entities after raycaster, before game)');
 
   // Classic scripts only: no module loader anywhere in the shipped script tags.
   const classicOk = !/<script\b[^>]*\btype\s*=\s*"module"/i.test(h.html);
