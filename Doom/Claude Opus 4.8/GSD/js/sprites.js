@@ -39,6 +39,9 @@ var Sprites = {
           // Phase 5 (05-CONTEXT D-09): the enemy animation frames the AI picks
           // per frame, plus the enemy's ranged attack projectile.
           'enemyIdle', 'enemyWalk1', 'enemyWalk2', 'enemyAttack', 'fireball',
+          // Phase 5 (05-03): the ENEM-04 damage-response frames — the pain
+          // stagger, the three-frame fall, and the terminal floor corpse.
+          'enemyPain', 'enemyDeath1', 'enemyDeath2', 'enemyDeath3', 'enemyCorpse',
           // Phase 5 (05-02): the two weapon VIEWMODELS the overlay pass draws
           // bottom-centre, plus the muzzle flash composited over the barrel.
           'weaponPistol', 'weaponShotgun', 'muzzleFlash'],
@@ -58,6 +61,14 @@ var Sprites = {
     m.enemyWalk1 = Sprites.makeEnemy(111, 'walk1');
     m.enemyWalk2 = Sprites.makeEnemy(112, 'walk2');
     m.enemyAttack = Sprites.makeEnemy(113, 'attack');
+    // Phase 5 (05-03) ENEM-04 damage response: the pain stagger, the three-frame
+    // fall, and the terminal corpse — the SAME builder, the SAME palette, five
+    // more poses, each with its own stable salt.
+    m.enemyPain = Sprites.makeEnemy(114, 'pain');
+    m.enemyDeath1 = Sprites.makeEnemy(131, 'death1');
+    m.enemyDeath2 = Sprites.makeEnemy(132, 'death2');
+    m.enemyDeath3 = Sprites.makeEnemy(133, 'death3');
+    m.enemyCorpse = Sprites.makeEnemy(141, 'corpse');
     m.fireball = Sprites.makeFireball(121);
     // LEGACY KEY: 'enemy' is an ALIAS for the idle frame (same asset object, same
     // salt 101 the Phase 4 art shipped with), so every Phase 4 consumer that
@@ -207,20 +218,86 @@ var Sprites = {
   //   walk2   — the mirror image, so alternating the two reads as a stride.
   //   attack  — both arms RAISED, mouth widened, eyes on the hotter emissive
   //             palette entry (the telegraph the attack windup shows).
+  //
+  // 05-03 (ENEM-04) adds the DAMAGE RESPONSE poses to the SAME builder and the
+  // SAME palette — the whole point of the pose table is that a new frame is a
+  // data row, not a second hand-drawn asset that drifts on the first retune:
+  //   pain    — head thrown back and foreshortened, arms flung outward, mouth
+  //             wide, body recoiled, eyes hot. The stagger frame.
+  //   death1  — buckling at the knees: the hips drop, the legs shorten, the whole
+  //             upper body and head come down while the feet stay planted.
+  //   death2  — folded forward at roughly half height: a squat, wide torso with
+  //             the head dropped in front of it and the arms splayed low.
+  //   death3  — collapsed: almost everything in the bottom quarter, arms flung
+  //             wide, the horns the highest thing left.
+  //   corpse  — the TERMINAL frame, and the only pose that does NOT use the
+  //             standing skeleton (see the `flat` branch): a low flattened mass
+  //             of body and limb colour with the horn-bone highlights still
+  //             catching the light, drawn entirely in the BOTTOM band of the
+  //             frame so the floor-anchored billboard lies ON the ground instead
+  //             of hovering at eye level.
   // ---------------------------------------------------------------------------
 
-  // Per-pose limb deltas. Every field is a pixel offset applied to the idle
-  // geometry, so idle is exactly the all-zero row and cannot drift.
-  var ENEMY_POSES = {
-    idle:   { legLdy: 0, legRdy: 0, armLdx: 0, armLdy: 0, armRdx: 0, armRdy: 0,
-              armTop: 24, armLen: 19, mouthY: 19, mouthH: 4, hotEyes: false },
-    walk1:  { legLdy: -3, legRdy: 0, armLdx: -1, armLdy: 2, armRdx: 1, armRdy: -2,
-              armTop: 24, armLen: 19, mouthY: 19, mouthH: 4, hotEyes: false },
-    walk2:  { legLdy: 0, legRdy: -3, armLdx: 1, armLdy: -2, armRdx: -1, armRdy: 2,
-              armTop: 24, armLen: 19, mouthY: 19, mouthH: 4, hotEyes: false },
-    attack: { legLdy: 0, legRdy: 0, armLdx: -2, armLdy: 0, armRdx: 2, armRdy: 0,
-              armTop: 15, armLen: 17, mouthY: 18, mouthH: 6, hotEyes: true }
+  // THE IDLE GEOMETRY, written out ONCE. Every pose below is a SPARSE OVERRIDE of
+  // this row, which is what makes idle literally "the defaults" — it cannot drift,
+  // and the Phase 4 pixel proofs that name the legacy `enemy` alias keep passing
+  // byte for byte. The face features are all DERIVED from headCX/headCY (brow at
+  // headCY-5, eyes at headCY-1, horns climbing from headCY-5, mouth at
+  // headCY+mouthDy), so a pose that drops the head drags the whole face with it
+  // instead of leaving the eyes floating where the head used to be.
+  var ENEMY_BASE = {
+    // Legs + feet. The feet sit directly below the legs, so a shorter leg with a
+    // lower hip keeps the feet planted on the same floor line.
+    hipY: 44, legH: 16, footH: 4, legLdy: 0, legRdy: 0,
+    // Arms, with bone claws at the wrists.
+    armTop: 24, armLen: 19, armLdx: 0, armLdy: 0, armRdx: 0, armRdy: 0,
+    // Torso: a span-per-row taper from shoulders to waist.
+    torsoCX: 32, torsoTop: 21, torsoBot: 46, torsoSpan: 24,
+    torsoHalf: 15, torsoTaper: 5,
+    // Head.
+    headCX: 32, headCY: 14, headRX: 11, headRY: 10,
+    // Face.
+    mouthDy: 5, mouthH: 4, hotEyes: false,
+    // The corpse opts OUT of the standing skeleton entirely.
+    flat: false
   };
+
+  // Sparse per-pose overrides. Merged over ENEMY_BASE ONCE at module load (the
+  // only allocation, and nowhere near a hot path).
+  var ENEMY_POSE_DELTAS = {
+    idle:   {},
+    walk1:  { legLdy: -3, armLdx: -1, armLdy: 2, armRdx: 1, armRdy: -2 },
+    walk2:  { legRdy: -3, armLdx: 1, armLdy: -2, armRdx: -1, armRdy: 2 },
+    attack: { armLdx: -2, armRdx: 2, armTop: 15, armLen: 17, mouthDy: 4,
+              mouthH: 6, hotEyes: true },
+    // --- 05-03 (ENEM-04) ---------------------------------------------------
+    pain:   { headCY: 13, headRY: 9, mouthDy: 4, mouthH: 7, hotEyes: true,
+              armTop: 20, armLen: 15, armLdx: -6, armLdy: -2, armRdx: 6,
+              armRdy: -2, torsoHalf: 14, legLdy: -1, legRdy: -1 },
+    death1: { hipY: 49, legH: 11, torsoTop: 26, torsoBot: 51,
+              headCY: 19, headRY: 9, armTop: 30, armLen: 17,
+              armLdx: -3, armRdx: 3 },
+    death2: { hipY: 54, legH: 6, torsoTop: 38, torsoBot: 56, torsoSpan: 18,
+              torsoHalf: 16, torsoTaper: 2, headCY: 34, headRX: 12, headRY: 7,
+              mouthDy: 4, armTop: 42, armLen: 11, armLdx: -6, armLdy: 2,
+              armRdx: 6, armRdy: 2 },
+    death3: { hipY: 58, legH: 4, torsoTop: 48, torsoBot: 60, torsoSpan: 12,
+              torsoHalf: 18, torsoTaper: 1, headCY: 46, headRX: 12, headRY: 5,
+              mouthDy: 3, mouthH: 3, armTop: 52, armLen: 7, armLdx: -10,
+              armLdy: 2, armRdx: 10, armRdy: 2 },
+    corpse: { flat: true }
+  };
+
+  var ENEMY_POSES = {};
+  (function buildPoseTable() {
+    for (var name in ENEMY_POSE_DELTAS) {
+      var row = {};
+      for (var k in ENEMY_BASE) row[k] = ENEMY_BASE[k];
+      var d = ENEMY_POSE_DELTAS[name];
+      for (var j in d) row[j] = d[j];
+      ENEMY_POSES[name] = row;
+    }
+  })();
 
   Sprites.makeEnemy = function (salt, pose) {
     var W = 64, H = 64;
@@ -232,44 +309,69 @@ var Sprites = {
     var BODY = 1, LIMB = 2, EYE = 3, BONE = 4, MOUTH = 5, TOOTH = 6, RIM = 7,
         EYEHOT = 8;
 
-    // Legs and feet. legLdy/legRdy lift a leg for the walk cycle.
-    mrect(m, W, H, 21, 44 + P.legLdy, 8, 16, LIMB);
-    mrect(m, W, H, 35, 44 + P.legRdy, 8, 16, LIMB);
-    mrect(m, W, H, 19, 60 + P.legLdy, 12, 4, LIMB);
-    mrect(m, W, H, 33, 60 + P.legRdy, 12, 4, LIMB);
+    if (P.flat) {
+      // THE CORPSE (05-03). Not a pose of the standing skeleton — a spread,
+      // flattened mass confined to the BOTTOM band of the frame, so the
+      // floor-anchored billboard reads as something lying on the ground. Same
+      // palette as every other frame: body mass, limb mass, a dark pooled
+      // cavity, and the horn/claw bone still catching the light.
+      mellipse(m, W, H, 32, 57, 21, 5, BODY);
+      mellipse(m, W, H, 20, 59, 10, 3, LIMB);
+      mellipse(m, W, H, 45, 59, 11, 3, LIMB);
+      mrect(m, W, H, 7, 58, 13, 3, LIMB);     // one arm flung out to the left
+      mrect(m, W, H, 45, 59, 13, 3, LIMB);    // the other, lower
+      mrect(m, W, H, 26, 55, 12, 2, MOUTH);   // the dark of the open mouth
+      mrect(m, W, H, 14, 55, 3, 2, BONE);     // claw bone
+      mrect(m, W, H, 48, 55, 3, 2, BONE);
+      mrect(m, W, H, 29, 53, 2, 2, BONE);     // the horns, still the highlight
+      mrect(m, W, H, 34, 53, 2, 2, BONE);
+      outline(m, W, H, RIM);
+    } else {
+
+    // Legs and feet. legLdy/legRdy lift a leg for the walk cycle; hipY/legH drop
+    // and shorten them as the enemy buckles through the death frames.
+    var footY = P.hipY + P.legH;
+    mrect(m, W, H, P.torsoCX - 11, P.hipY + P.legLdy, 8, P.legH, LIMB);
+    mrect(m, W, H, P.torsoCX + 3, P.hipY + P.legRdy, 8, P.legH, LIMB);
+    mrect(m, W, H, P.torsoCX - 13, footY + P.legLdy, 12, P.footH, LIMB);
+    mrect(m, W, H, P.torsoCX + 1, footY + P.legRdy, 12, P.footH, LIMB);
 
     // Arms with bone claws at the wrists. armTop/armLen raise and shorten both
-    // arms for the attack pose; armLdx/armRdx swing them for the walk cycle.
+    // arms for the attack pose; armLdx/armRdx swing them for the walk cycle and
+    // fling them outward for pain and the fall.
     var armLy = P.armTop + P.armLdy, armRy = P.armTop + P.armRdy;
-    mrect(m, W, H, 11 + P.armLdx, armLy, 7, P.armLen, LIMB);
-    mrect(m, W, H, 46 + P.armRdx, armRy, 7, P.armLen, LIMB);
-    mrect(m, W, H, 10 + P.armLdx, armLy + P.armLen, 9, 4, BONE);
-    mrect(m, W, H, 45 + P.armRdx, armRy + P.armLen, 9, 4, BONE);
+    mrect(m, W, H, P.torsoCX - 21 + P.armLdx, armLy, 7, P.armLen, LIMB);
+    mrect(m, W, H, P.torsoCX + 14 + P.armRdx, armRy, 7, P.armLen, LIMB);
+    mrect(m, W, H, P.torsoCX - 22 + P.armLdx, armLy + P.armLen, 9, 4, BONE);
+    mrect(m, W, H, P.torsoCX + 13 + P.armRdx, armRy + P.armLen, 9, 4, BONE);
 
     // Torso: broad shoulders tapering to the waist.
-    for (var y = 21; y < 46; y++) {
-      var k = (y - 21) / 24;
-      mspan(m, W, H, 32, y, 15 - k * 5, BODY);
+    for (var y = P.torsoTop; y < P.torsoBot; y++) {
+      var k = (y - P.torsoTop) / P.torsoSpan;
+      mspan(m, W, H, P.torsoCX, y, P.torsoHalf - k * P.torsoTaper, BODY);
     }
 
-    // Head, brow ridge, horns.
-    mellipse(m, W, H, 32, 14, 11, 10, BODY);
-    mrect(m, W, H, 22, 9, 20, 3, LIMB);
+    // Head, brow ridge, horns — every feature DERIVED from the head centre.
+    var hx = P.headCX, hy = P.headCY;
+    mellipse(m, W, H, hx, hy, P.headRX, P.headRY, BODY);
+    mrect(m, W, H, hx - 10, hy - 5, 20, 3, LIMB);
     for (var i = 0; i < 7; i++) {
-      mrect(m, W, H, 23 - i, 9 - i, 2, 2, BONE);
-      mrect(m, W, H, 39 + i, 9 - i, 2, 2, BONE);
+      mrect(m, W, H, hx - 9 - i, hy - 5 - i, 2, 2, BONE);
+      mrect(m, W, H, hx + 7 + i, hy - 5 - i, 2, 2, BONE);
     }
 
-    // Glowing eyes — the attack pose burns hotter.
+    // Glowing eyes — the attack and pain poses burn hotter.
     var eyeId = P.hotEyes ? EYEHOT : EYE;
-    mrect(m, W, H, 26, 13, 4, 3, eyeId);
-    mrect(m, W, H, 34, 13, 4, 3, eyeId);
+    mrect(m, W, H, hx - 6, hy - 1, 4, 3, eyeId);
+    mrect(m, W, H, hx + 2, hy - 1, 4, 3, eyeId);
 
-    // Fanged mouth (widened on the attack pose).
-    mrect(m, W, H, 25, P.mouthY, 14, P.mouthH, MOUTH);
-    for (var f = 0; f < 7; f++) mrect(m, W, H, 26 + f * 2, P.mouthY, 1, 2, TOOTH);
+    // Fanged mouth (widened on the attack and pain poses).
+    var mouthY = hy + P.mouthDy;
+    mrect(m, W, H, hx - 7, mouthY, 14, P.mouthH, MOUTH);
+    for (var f = 0; f < 7; f++) mrect(m, W, H, hx - 6 + f * 2, mouthY, 1, 2, TOOTH);
 
     outline(m, W, H, RIM);
+    }
 
     colorize(t, m, {
       1: [152, 68, 46],           // body

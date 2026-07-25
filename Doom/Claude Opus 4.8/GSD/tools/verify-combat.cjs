@@ -707,7 +707,10 @@ function setCell(mx, my, id) {
   p.x = 5.0; p.y = 2.5; p.vx = CONFIG.PROJ_SPEED; p.vy = 0;
   p.damage = CONFIG.PROJ_DAMAGE; p.active = true;
 
-  const snapE = [e.x, e.y, e.state, e.health, e.cooldown, e.windup, e.animTime, e.stuck];
+  // The snapshot covers EVERY mutable behaviour field, including 05-03's painTime
+  // and deathFrame — a delta guard that misses a field is not a guard.
+  const snapE = [e.x, e.y, e.state, e.health, e.cooldown, e.windup, e.animTime, e.stuck,
+                 e.painTime, e.deathFrame];
   const snapP = [p.x, p.y, p.vx, p.vy, p.active];
 
   for (const bad of [NaN, Infinity, -Infinity, -1, -0.016]) {
@@ -716,7 +719,8 @@ function setCell(mx, my, id) {
   }
   const enemyIntact = e.x === snapE[0] && e.y === snapE[1] && e.state === snapE[2] &&
     e.health === snapE[3] && e.cooldown === snapE[4] && e.windup === snapE[5] &&
-    e.animTime === snapE[6] && e.stuck === snapE[7];
+    e.animTime === snapE[6] && e.stuck === snapE[7] &&
+    e.painTime === snapE[8] && e.deathFrame === snapE[9];
   const projIntact = p.x === snapP[0] && p.y === snapP[1] && p.vx === snapP[2] &&
     p.vy === snapP[3] && p.active === snapP[4];
   assert(enemyIntact && projIntact,
@@ -899,6 +903,279 @@ function setCell(mx, my, id) {
   assert(b1 === b2 && b1 >= a2,
     '2y-iii. CONTROL: two damage calls with NO stepping between them record the SAME timestamp (' +
     b1.toFixed(4) + ') — 2y-ii measured real elapsed simulated time');
+})();
+
+// ===========================================================================
+// 3. THE PAIN REACTION (ENEM-04, plan 05-03 Task 1).
+//
+// The stagger is chance-based, so "it happened once" proves nothing. 3b is a real
+// STATISTICAL check against CONFIG.ENEMY_PAIN_CHANCE over 200 independent hits,
+// and 3c is the pair of controls that proves the roll is wired to the constant:
+// forcing the chance to 0 must produce ZERO staggers and forcing it to 1 must
+// stagger EVERY non-lethal hit. Without those two, 3b would pass against a
+// hardcoded 0.3 that ignores CONFIG entirely.
+// ===========================================================================
+
+// A fresh full-health enemy at (x,y), added to the scenario's update set.
+function freshEnemy(x, y) {
+  const e = Enemies.add(x, y);
+  e.state = Enemies.CHASE;
+  e.cooldown = 1e9;               // park the attack gate unless a proof wants it
+  return e;
+}
+
+// --- 3a: a non-lethal hit takes exactly the damage passed --------------------
+(function () {
+  scenario(2.5, 2.5);
+  const e = freshEnemy(6.5, 2.5);
+  const DMG = CONFIG.PISTOL_DAMAGE;
+  assert(DMG < CONFIG.ENEMY_HEALTH,
+    '3a-0. precondition: one PISTOL_DAMAGE hit (' + DMG + ') is NON-lethal against ENEMY_HEALTH (' +
+    CONFIG.ENEMY_HEALTH + '), so 3a measures a survivable hit');
+
+  const dealt = Enemies.hurt(e, DMG);
+  assert(dealt === DMG && e.health === CONFIG.ENEMY_HEALTH - DMG && e.alive === true,
+    '3a. ENEM-04: a non-lethal hit reduces health by EXACTLY the damage passed (' +
+    CONFIG.ENEMY_HEALTH + ' -> ' + e.health + ') and the enemy stays alive');
+
+  // Health never goes below zero, and the overkill report is only what was lost.
+  const e2 = freshEnemy(7.5, 2.5);
+  const lost = Enemies.hurt(e2, CONFIG.ENEMY_HEALTH * 10);
+  assert(e2.health === 0 && lost === CONFIG.ENEMY_HEALTH,
+    '3a-ii. overkill clamps health to EXACTLY 0 and reports only the ' + lost + ' actually lost');
+})();
+
+// --- 3b: the pain fraction matches CONFIG.ENEMY_PAIN_CHANCE -----------------
+// Each of 200 fresh enemies takes ONE non-lethal hit, so every trial is
+// independent and draws the next value from the deterministic stream. No reset
+// happens inside the loop (a reset would re-seed and replay one draw 200 times).
+(function () {
+  scenario(2.5, 2.5);
+  const N = 200;
+  const DMG = 1;                          // emphatically non-lethal
+  let painCount = 0;
+  for (let i = 0; i < N; i++) {
+    const e = Enemies.add(3.5, 3.5);
+    e.state = Enemies.CHASE;
+    Enemies.hurt(e, DMG);
+    if (e.state === Enemies.PAIN) painCount++;
+  }
+  const frac = painCount / N;
+  assert(Math.abs(frac - CONFIG.ENEMY_PAIN_CHANCE) <= 0.10,
+    '3b. ENEM-04: over ' + N + ' independent non-lethal hits ' + painCount + ' staggered — a ' +
+    'fraction of ' + frac.toFixed(3) + ', within 0.10 of CONFIG.ENEMY_PAIN_CHANCE (' +
+    CONFIG.ENEMY_PAIN_CHANCE + ')');
+})();
+
+// --- 3c: the two CONTROLS that prove the roll reads the constant ------------
+(function () {
+  const saved = CONFIG.ENEMY_PAIN_CHANCE;
+  const N = 60, DMG = 1;
+
+  CONFIG.ENEMY_PAIN_CHANCE = 0;
+  scenario(2.5, 2.5);
+  let painsAtZero = 0;
+  for (let i = 0; i < N; i++) {
+    const e = Enemies.add(3.5, 3.5);
+    e.state = Enemies.CHASE;
+    Enemies.hurt(e, DMG);
+    if (e.state === Enemies.PAIN) painsAtZero++;
+  }
+
+  CONFIG.ENEMY_PAIN_CHANCE = 1;
+  scenario(2.5, 2.5);
+  let painsAtOne = 0;
+  for (let i = 0; i < N; i++) {
+    const e = Enemies.add(3.5, 3.5);
+    e.state = Enemies.CHASE;
+    Enemies.hurt(e, DMG);
+    if (e.state === Enemies.PAIN) painsAtOne++;
+  }
+  CONFIG.ENEMY_PAIN_CHANCE = saved;
+
+  assert(painsAtZero === 0 && painsAtOne === N,
+    '3c. CONTROL PAIR: ENEMY_PAIN_CHANCE forced to 0 gives ' + painsAtZero + '/' + N +
+    ' staggers and forced to 1 gives ' + painsAtOne + '/' + N + ' — the roll is wired to the ' +
+    'CONFIG constant and read LIVE, not hardcoded');
+  assert(CONFIG.ENEMY_PAIN_CHANCE === saved,
+    '3c-ii. the shipped ENEMY_PAIN_CHANCE (' + saved + ') is restored after the controls');
+})();
+
+// --- 3d / 3f: the stagger freezes the enemy, then it resumes ----------------
+(function () {
+  const saved = CONFIG.ENEMY_PAIN_CHANCE;
+  CONFIG.ENEMY_PAIN_CHANCE = 1;           // make the stagger certain, not lucky
+
+  scenario(2.5, 2.5);
+  const e = freshEnemy(6.5, 2.5);
+  Enemies.hurt(e, 1);
+  assert(e.state === Enemies.PAIN && near(e.painTime, CONFIG.ENEMY_PAIN_TIME, 1e-12),
+    '3d-0. precondition: the hit staggered the enemy and armed the timer at ' +
+    'CONFIG.ENEMY_PAIN_TIME (' + CONFIG.ENEMY_PAIN_TIME + ')');
+
+  // Hold the pain window and watch: the pain frame, no movement, no projectile.
+  const px = e.x, py = e.y;
+  // Frames STRICTLY INSIDE the pain window, derived from CONFIG: one short of the
+  // frame that would expire it, so this measurement is about the window's
+  // interior and 3f below owns the expiry.
+  const painFrames = Math.max(1, Math.ceil(CONFIG.ENEMY_PAIN_TIME / FRAME_DT) - 1);
+  resetSpawnLog();
+  let alwaysPainFrame = true, alwaysPainState = true, moved = false;
+  for (let i = 0; i < painFrames; i++) {
+    Game.step(FRAME_DT);
+    if (e.sprite !== 'enemyPain') alwaysPainFrame = false;
+    if (e.state !== Enemies.PAIN) alwaysPainState = false;
+    if (e.x !== px || e.y !== py) moved = true;
+  }
+  assert(alwaysPainFrame && alwaysPainState && !moved && spawnLog.length === 0,
+    '3d. ENEM-04: across the ' + painFrames + ' frames of the pain window the enemy holds the ' +
+    'enemyPain frame, its position is BYTE-IDENTICAL, and it spawns no projectile');
+
+  // 3f: the stagger EXPIRES back into chase and the enemy moves again.
+  let resumed = -1;
+  const totalFrames = Math.ceil(CONFIG.ENEMY_PAIN_TIME / FRAME_DT) + 2;
+  for (let i = painFrames; i < totalFrames && resumed < 0; i++) {
+    Game.step(FRAME_DT);
+    if (e.state === Enemies.CHASE) resumed = i;
+  }
+  const rx = e.x, ry = e.y;
+  for (let i = 0; i < 10; i++) Game.step(FRAME_DT);
+  const movedAfter = dist(rx, ry, e.x, e.y);
+  assert(resumed >= 0 && e.state === Enemies.CHASE && movedAfter > 0,
+    '3f. ENEM-04: after CONFIG.ENEMY_PAIN_TIME the enemy is back in CHASE (frame ' + resumed +
+    ' of ' + totalFrames + ') and moving again (' + movedAfter.toFixed(4) +
+    ' cells over the next 10 frames) — the stagger is BRIEF, not a permanent freeze');
+
+  CONFIG.ENEMY_PAIN_CHANCE = saved;
+})();
+
+// --- 3e: pain INTERRUPTS an attack windup ----------------------------------
+// The enemy is caught mid-telegraph. The windup it was serving must produce
+// NOTHING — with a matched control proving the identical windup, left alone,
+// DOES fire.
+(function () {
+  const saved = CONFIG.ENEMY_PAIN_CHANCE;
+
+  function windUp() {
+    scenario(2.5, 2.5);
+    const e = freshEnemy(6.5, 2.5);
+    e.cooldown = 0;                       // let it enter the attack
+    let entered = false;
+    for (let i = 0; i < 30 && !entered; i++) {
+      Game.step(FRAME_DT);
+      if (e.state === Enemies.ATTACK && e.windup > 0) entered = true;
+    }
+    resetSpawnLog();
+    return { e: e, entered: entered };
+  }
+
+  CONFIG.ENEMY_PAIN_CHANCE = 1;
+  const a = windUp();
+  assert(a.entered && a.e.windup > 0,
+    '3e-0. precondition: the enemy is mid-windup with ' + a.e.windup.toFixed(4) + ' s left');
+  Enemies.hurt(a.e, 1);
+  const windupAfterHit = a.e.windup;
+  for (let i = 0; i < 30; i++) Game.step(FRAME_DT);
+  const firedAfterPain = spawnLog.length;
+
+  // CONTROL: the identical windup, never interrupted.
+  CONFIG.ENEMY_PAIN_CHANCE = saved;
+  const b = windUp();
+  assert(b.entered, '3e-ii. CONTROL precondition: the same setup reaches the windup again');
+  for (let i = 0; i < 30; i++) Game.step(FRAME_DT);
+  const firedUninterrupted = spawnLog.length;
+
+  assert(windupAfterHit === 0 && firedAfterPain === 0 && firedUninterrupted > 0,
+    '3e. ENEM-04 (T-05-19): a hit landing mid-windup ZEROES the windup and that attack fires ' +
+    'NOTHING (' + firedAfterPain + ' projectiles), while the identical UNINTERRUPTED windup does ' +
+    'fire (' + firedUninterrupted + ') — the stagger really interrupted an action');
+})();
+
+// --- 3g: pain does NOT reset the attack cooldown ---------------------------
+(function () {
+  const saved = CONFIG.ENEMY_PAIN_CHANCE;
+  CONFIG.ENEMY_PAIN_CHANCE = 1;
+
+  scenario(2.5, 2.5);
+  const e = freshEnemy(6.5, 2.5);
+  e.cooldown = CONFIG.ENEMY_ATTACK_COOLDOWN;      // freshly charged
+  const before = e.cooldown;
+  Enemies.hurt(e, 1);
+  const after = e.cooldown;
+
+  // Serve out the whole stagger and check the cooldown only ever ticked DOWN by
+  // the elapsed time — it was never handed back to zero.
+  const frames = Math.ceil(CONFIG.ENEMY_PAIN_TIME / FRAME_DT) + 1;
+  resetSpawnLog();
+  for (let i = 0; i < frames; i++) Game.step(FRAME_DT);
+  const expected = before - frames * FRAME_DT;
+
+  assert(after === before && near(e.cooldown, expected, 1e-9) && e.cooldown > 0 &&
+    spawnLog.length === 0,
+    '3g. ENEM-04 (T-05-19): the stagger leaves the cooldown UNTOUCHED at the moment of the hit (' +
+    before.toFixed(4) + ' -> ' + after.toFixed(4) + ') and after the whole pain window it has only ' +
+    'ticked down by the elapsed time (' + e.cooldown.toFixed(4) + ' ~ ' + expected.toFixed(4) +
+    ', still > 0) with zero shots fired — shooting an enemy cannot buy it a free attack');
+
+  CONFIG.ENEMY_PAIN_CHANCE = saved;
+})();
+
+// --- 3h: pain is NEVER entered on the killing blow ------------------------
+(function () {
+  const saved = CONFIG.ENEMY_PAIN_CHANCE;
+  CONFIG.ENEMY_PAIN_CHANCE = 1;           // the worst case for this claim
+
+  scenario(2.5, 2.5);
+  // Exactly lethal, and a second enemy taken well past zero.
+  const e = freshEnemy(6.5, 2.5);
+  Enemies.hurt(e, CONFIG.ENEMY_HEALTH);
+  const e2 = freshEnemy(7.5, 2.5);
+  Enemies.hurt(e2, CONFIG.ENEMY_HEALTH * 3);
+
+  // The CONTROL is in the same breath: one point less is non-lethal and DOES
+  // stagger, so the difference is lethality and nothing else.
+  const e3 = freshEnemy(8.5, 2.5);
+  Enemies.hurt(e3, CONFIG.ENEMY_HEALTH - 1);
+
+  assert(e.state === Enemies.DEATH && e2.state === Enemies.DEATH &&
+    e.alive === false && e2.alive === false,
+    '3h. ENEM-04: with the pain chance forced to 1, an exactly-lethal hit and an overkill hit BOTH ' +
+    'go straight to the DEATH state (never pain) and clear the alive flag');
+  assert(e3.state === Enemies.PAIN && e3.alive === true && e3.health === 1,
+    '3h-ii. CONTROL: one point LESS damage, same forced chance, same call — the enemy survives on ' +
+    '1 health and DOES stagger, so 3h measured lethality, not a broken roll');
+
+  CONFIG.ENEMY_PAIN_CHANCE = saved;
+})();
+
+// --- 3i: hurt() on a dead or corpse enemy changes nothing at all ----------
+(function () {
+  const saved = CONFIG.ENEMY_PAIN_CHANCE;
+  CONFIG.ENEMY_PAIN_CHANCE = 1;
+
+  scenario(2.5, 2.5);
+  const e = freshEnemy(6.5, 2.5);
+  Enemies.hurt(e, CONFIG.ENEMY_HEALTH);           // kill it
+  const snapDead = [e.health, e.alive, e.state, e.windup, e.painTime, e.x, e.y];
+  const r1 = Enemies.hurt(e, 99);
+  const deadIntact = e.health === snapDead[0] && e.alive === snapDead[1] &&
+    e.state === snapDead[2] && e.windup === snapDead[3] && e.painTime === snapDead[4] &&
+    e.x === snapDead[5] && e.y === snapDead[6];
+
+  // Force it all the way to the corpse state and repeat.
+  e.state = Enemies.CORPSE;
+  e.sprite = 'enemyCorpse';
+  const snapCorpse = [e.health, e.alive, e.state, e.sprite, e.painTime];
+  const r2 = Enemies.hurt(e, 99);
+  const corpseIntact = e.health === snapCorpse[0] && e.alive === snapCorpse[1] &&
+    e.state === snapCorpse[2] && e.sprite === snapCorpse[3] && e.painTime === snapCorpse[4];
+
+  assert(r1 === 0 && r2 === 0 && deadIntact && corpseIntact,
+    '3i. ENEM-04: hurt() on an already-dead enemy and on a CORPSE both return 0 and leave every ' +
+    'field byte-identical — the alive flag is the re-entry guard and a corpse can never be ' +
+    'killed a second time');
+
+  CONFIG.ENEMY_PAIN_CHANCE = saved;
 })();
 
 finish('ALL_COMBAT_CONTRACTS_PASS');

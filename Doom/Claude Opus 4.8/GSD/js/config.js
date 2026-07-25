@@ -124,6 +124,30 @@ var CONFIG = {
   ENEMY_ATTACK_WINDUP: 0.35,  // telegraph before the projectile leaves the hand
   ENEMY_WALK_FRAME_TIME: 0.22,// seconds per walk frame (two-frame walk cycle)
 
+  // --- Enemy damage response (ENEM-04, 05-03 — D-02 + D-06) ---------------
+  // ENEMY_PAIN_CHANCE: the probability that a NON-LETHAL hit staggers the enemy
+  // into the pain state. Read LIVE by Enemies.hurt on every hit (never captured
+  // at load), which is what lets the harness force it to 0 and to 1 as paired
+  // falsifiability controls: 0 must produce no pain at all and 1 must produce
+  // pain on every non-lethal hit. The roll is drawn from Enemies.rand(), so a
+  // chance of 0 cannot pass by luck of the stream and a chance of 1 cannot fail.
+  ENEMY_PAIN_CHANCE: 0.3,
+  // ENEMY_PAIN_TIME: seconds the stagger holds the pain frame. Deliberately
+  // SHORTER than ENEMY_ATTACK_COOLDOWN (1.6): pain must interrupt an attack in
+  // progress without ever handing the enemy a free extra shot, which is why the
+  // stagger zeroes the WINDUP and leaves the COOLDOWN untouched.
+  ENEMY_PAIN_TIME: 0.25,
+  // ENEMY_DEATH_FRAME_TIME: seconds each of the three death frames is held. The
+  // whole fall therefore takes 3 * this = 0.42 s before the terminal corpse
+  // state latches. The frame index advances MONOTONICALLY and the corpse is
+  // terminal, so the animation plays exactly once and cannot loop (T-05-18).
+  ENEMY_DEATH_FRAME_TIME: 0.14,
+  // ENEMY_HURT_SEED_SALT: the distinct salt added to CONFIG.SEED for the pain
+  // roll stream, so the stagger pattern is deterministic and reproducible
+  // headlessly and cannot correlate with the procedural-art streams or with
+  // CONFIG.WEAPON_SEED_SALT's pellet scatter.
+  ENEMY_HURT_SEED_SALT: 4243,
+
   // --- Corner recovery (the bounded wall-follow) ---
   // A chasing enemy that presses into a wall face or a concave corner makes no
   // progress: the direct steer keeps pushing into geometry forever. These two

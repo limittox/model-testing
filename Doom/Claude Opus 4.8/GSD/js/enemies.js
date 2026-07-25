@@ -41,6 +41,17 @@
  *            ENEMY_STOP_RANGE; enter attack on sight + range + elapsed cooldown.
  *   attack — show the attack frame for ENEMY_ATTACK_WINDUP, then RE-TEST line of
  *            sight and only then release the fireball, and return to chase.
+ *   pain   — a brief stagger on the pain frame, entered ONLY EXTERNALLY from
+ *            hurt() on a CONFIG.ENEMY_PAIN_CHANCE roll after a NON-LETHAL hit.
+ *            The update loop never enters pain on its own. It moves nothing and
+ *            attacks nothing, and resumes into chase — including when it
+ *            interrupted idle, because being shot wakes an enemy up.
+ *
+ * PAIN ZEROES THE WINDUP AND LEAVES THE COOLDOWN ALONE. Zeroing the windup is
+ * what makes the stagger genuinely interrupt an attack in progress; leaving the
+ * cooldown is what stops a player from handing the enemy a free immediate attack
+ * by shooting it mid-cooldown (threat T-05-19). And because the lethal branch of
+ * hurt() returns BEFORE the roll, pain can never trigger on the killing blow.
  *
  * THE COOLDOWN IS TAKEN ON ENTERING ATTACK, not at the end of the windup. That
  * makes the firing period exactly ENEMY_ATTACK_COOLDOWN, which is what the
@@ -96,14 +107,50 @@ var Enemies = {
   IDLE: 'idle',
   CHASE: 'chase',
   ATTACK: 'attack',
-  DEATH: 'death',     // entered by hurt(); the ANIMATION is plan 05-03's
+  PAIN: 'pain',       // entered ONLY from hurt() on a chance roll (05-03)
+  DEATH: 'death',     // entered by hurt(); the ANIMATION runs in update (05-03)
   CORPSE: 'corpse',   // the terminal, genuinely inert state — the update skip
+
+  // THE PAIN-ROLL STREAM (05-03). mulberry32 written as a module-scope function
+  // over this integer state rather than the closure mulberry32() returns —
+  // identical output sequence for the same seed, but re-seeding is a single
+  // integer assignment, so NOTHING allocates per hit or per reset (threat
+  // T-05-20). Same discipline as Weapons.randState.
+  randState: 0,
 
   built: false
 };
 
 (function () {
   'use strict';
+
+  // The three death frames, in the order the fall plays them. A DATA array, so
+  // the frame count is derived from it everywhere (the corpse latches when the
+  // index runs past the end) and adding a fourth frame needs no logic change.
+  var DEATH_FRAMES = ['enemyDeath1', 'enemyDeath2', 'enemyDeath3'];
+  Enemies.DEATH_FRAMES = DEATH_FRAMES;
+  Enemies.CORPSE_FRAME = 'enemyCorpse';
+  Enemies.PAIN_FRAME = 'enemyPain';
+
+  // ===========================================================================
+  // THE PAIN ROLL STREAM (05-03) — mulberry32 over Enemies.randState. Seeded
+  // ONCE at module load (below) and re-seeded by reset(), so a replayed scenario
+  // staggers on exactly the same hits. Allocates nothing, ever.
+  // ===========================================================================
+  Enemies.rand = function () {
+    var a = Enemies.randState | 0;
+    a = (a + 0x6d2b79f5) | 0;
+    Enemies.randState = a;
+    var t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+
+  Enemies.seedRand = function () {
+    Enemies.randState = (CONFIG.SEED + CONFIG.ENEMY_HURT_SEED_SALT) >>> 0;
+    return Enemies.randState;
+  };
+  Enemies.seedRand();
 
   // ===========================================================================
   // THE ENEMY FIELD SET — written in exactly ONE place so the adoption path and
@@ -125,7 +172,9 @@ var Enemies = {
     entity.health = CONFIG.ENEMY_HEALTH;
     entity.cooldown = 0;     // seconds until the next attack may START
     entity.windup = 0;       // seconds left of the current attack telegraph
-    entity.animTime = 0;     // seconds accumulated for the walk cycle
+    entity.animTime = 0;     // seconds accumulated for the walk / death cycle
+    entity.painTime = 0;     // seconds left of the pain stagger (05-03)
+    entity.deathFrame = 0;   // index into DEATH_FRAMES while dying (05-03)
     entity.stuck = 0;        // seconds left of the latched corner recovery
     entity.recovX = 0;       // the latched recovery direction (unit)
     entity.recovY = 0;
@@ -195,6 +244,10 @@ var Enemies = {
   Enemies.reset = function () {
     Enemies.list.length = 0;
     Enemies.projectiles.length = 0;
+    // Re-seed the pain stream so a replayed scenario staggers on exactly the same
+    // hits (the same contract Weapons.reset() gives the pellet spread). One
+    // integer assignment; allocates nothing.
+    Enemies.seedRand();
     Enemies.build();
     if (typeof Pickups !== 'undefined' && Pickups && typeof Pickups.build === 'function') {
       Pickups.build();
@@ -349,6 +402,23 @@ var Enemies = {
           steerChase(e, dt, dx / d, dy / d, d - CONFIG.ENEMY_STOP_RANGE);
         }
 
+      } else if (e.state === Enemies.PAIN) {
+        // THE PAIN STAGGER (ENEM-04, 05-03). Entered ONLY from hurt() — this
+        // branch NEVER enters pain on its own, it only serves out the timer that
+        // hurt() set. Hold the pain frame, move nothing, attack nothing, and
+        // resume the chase on expiry. Resuming into CHASE even from a pain that
+        // interrupted IDLE is deliberate: being shot wakes an enemy up.
+        //
+        // The cooldown ticked at the top of the loop like every other non-corpse
+        // state, but it was NOT reset by the hit — a stagger must never hand the
+        // enemy a free immediate attack (threat T-05-19).
+        e.sprite = Enemies.PAIN_FRAME;
+        e.painTime -= dt;
+        if (e.painTime <= 0) {
+          e.painTime = 0;
+          e.state = Enemies.CHASE;
+        }
+
       } else if (e.state === Enemies.ATTACK) {
         e.sprite = 'enemyAttack';
         e.windup -= dt;
@@ -455,9 +525,24 @@ var Enemies = {
     if (enemy.health <= 0) {
       enemy.health = 0;
       enemy.alive = false;
-      // The death STATE is entered here; the death ANIMATION, the corpse, the
-      // pain reaction and the kill count are plan 05-03 (ENEM-04/ENEM-05).
+      // THE LETHAL BRANCH RETURNS BEFORE THE PAIN ROLL, which is the whole reason
+      // pain can never trigger on the killing blow (ENEM-04, threat T-05-19): a
+      // lethal hit goes straight to the death animation. The kill tally is
+      // incremented here in 05-03's Task 2, inside this same branch, so overkill
+      // cannot double-count.
       enemy.state = Enemies.DEATH;
+      return before - enemy.health;
+    }
+
+    // THE PAIN ROLL (ENEM-04, 05-03) — a NON-LETHAL hit only. CONFIG.
+    // ENEMY_PAIN_CHANCE is read LIVE, so forcing it to 0 or 1 is a real control.
+    if (Enemies.rand() < CONFIG.ENEMY_PAIN_CHANCE) {
+      enemy.state = Enemies.PAIN;
+      enemy.painTime = CONFIG.ENEMY_PAIN_TIME;
+      // ZERO THE WINDUP so an attack the stagger interrupted never fires. The
+      // COOLDOWN is deliberately left alone: resetting it would let a player
+      // grant the enemy a free immediate attack by shooting it (T-05-19).
+      enemy.windup = 0;
     }
     return before - enemy.health;
   };
