@@ -82,6 +82,58 @@ function simFrames(n, dt) { const d = dt === undefined ? FRAME_DT : dt; for (let
 
 function place(o, x, y) { o.x = x; o.y = y; return o; }
 
+// ---------------------------------------------------------------------------
+// HOW MANY FRAMEBUFFER PIXELS DOES ONE ENTITY WRITE?
+//
+// Renders the world three times through the REAL Raycaster: once with an EMPTY
+// entity list (walls and floor only), once with just this entity, and once with
+// just this entity's `active` flag forced false. The difference against the
+// background is the count of pixels that entity drew, and the forced-inactive
+// render is the paired control that makes a non-zero count meaningful.
+//
+// The entity list is narrowed and the weapon overlay is lifted for the duration
+// (the viewmodel draws over the bottom-centre — exactly where a floor-anchored
+// corpse projects), and BOTH are restored before returning. Rendering directly
+// through Raycaster.render() never presents, so the frame/present accounting the
+// rest of this harness asserts is untouched.
+// ---------------------------------------------------------------------------
+function measureDrawn(entity) {
+  const savedList = Entities.list;
+  const savedOverlays = Raycaster.overlayPasses.slice();
+  const savedActive = entity.active;
+  Raycaster.overlayPasses.length = 0;
+
+  function renderInto(list) {
+    Entities.list = list;
+    Entities._ensureScratch(Math.max(1, list.length));
+    Raycaster.render();
+    return Framebuffer.buf32.slice();
+  }
+  function diffCount(a, b) {
+    let n = 0;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) n++;
+    return n;
+  }
+
+  const bg = renderInto([]);
+  entity.active = true;
+  const withIt = renderInto([entity]);
+  entity.active = false;
+  const without = renderInto([entity]);
+
+  entity.active = savedActive;
+  Entities.list = savedList;
+  Entities._ensureScratch(savedList.length);
+  for (const p of savedOverlays) Raycaster.overlayPasses.push(p);
+
+  return {
+    drawn: diffCount(bg, withIt),
+    drawnInactive: diffCount(bg, without),
+    restored: Entities.list === savedList &&
+              Raycaster.overlayPasses.length === savedOverlays.length
+  };
+}
+
 // The number of Level.spawns entries that have a SPRITE_FOR descriptor — the
 // spawn-derived billboard count, COMPUTED from the level rather than hardcoded.
 function spawnDerivedCount() {
@@ -1301,49 +1353,17 @@ function freshEnemy(x, y) {
     '4d-0. precondition: the corpse stands 3 cells in front of the player in clear sight and its ' +
     'active flag is still TRUE (a corpse is a decal, not a despawn)');
 
-  // Isolate the measurement: this harness's only pixel proof, so the world list is
-  // narrowed to the corpse alone and the weapon overlay (which draws over the
-  // bottom-centre, exactly where a floor-anchored corpse projects) is lifted for
-  // the duration. Both are restored immediately afterwards; no assertion elsewhere
-  // is affected.
-  const savedList = Entities.list;
-  const savedOverlays = Raycaster.overlayPasses.slice();
-  Raycaster.overlayPasses.length = 0;
-
-  function renderInto(list) {
-    Entities.list = list;
-    Entities._ensureScratch(Math.max(1, list.length));
-    Raycaster.render();
-    return Framebuffer.buf32.slice();
-  }
-  function diffCount(a, b) {
-    let n = 0;
-    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) n++;
-    return n;
-  }
-
-  const bg = renderInto([]);                       // walls/floor only
-  const withCorpse = renderInto([e]);
-  e.active = false;
-  const inactive = renderInto([e]);
-  e.active = true;
-
-  Entities.list = savedList;
-  Entities._ensureScratch(savedList.length);
-  for (const p of savedOverlays) Raycaster.overlayPasses.push(p);
-
-  const drawn = diffCount(bg, withCorpse);
-  const drawnInactive = diffCount(bg, inactive);
-  assert(drawn > 0,
-    '4d. ENEM-04: the sprite pass DRAWS the corpse — ' + drawn + ' framebuffer pixels differ from ' +
-    'the same frame with no corpse in the world');
-  assert(drawnInactive === 0,
+  const m = measureDrawn(e);
+  assert(m.drawn > 0,
+    '4d. ENEM-04: the sprite pass DRAWS the corpse — ' + m.drawn + ' framebuffer pixels differ ' +
+    'from the same frame with no corpse in the world');
+  assert(m.drawnInactive === 0,
     '4d-ii. CONTROL: with the SAME corpse\'s active flag forced false the frame is byte-identical ' +
-    'to the background (' + drawnInactive + ' pixels) — 4d measured a real draw, and `active` is ' +
+    'to the background (' + m.drawnInactive + ' pixels) — 4d measured a real draw, and `active` is ' +
     'genuinely what the sprite pass tests');
-  assert(Raycaster.overlayPasses.length === savedOverlays.length &&
-    Entities.list === savedList,
-    '4d-iii. the overlay passes and the entity list are RESTORED after the pixel measurement');
+  assert(m.restored && e.active === true,
+    '4d-iii. the overlay passes, the entity list and the corpse\'s active flag are all RESTORED ' +
+    'after the pixel measurement');
 })();
 
 // --- 4e: a corpse never moves and never attacks ---------------------------
@@ -1482,6 +1502,156 @@ function freshEnemy(x, y) {
     '4j. T-05-20: after every enemy has died and 300 further frames, Entities.list is UNCHANGED (' +
     listBefore + ') and the projectile pool never grew (' + poolBefore + ') — the death branch, ' +
     'the corpse and the pain roll all allocate nothing');
+})();
+
+// ===========================================================================
+// 5. THE WHOLE COMBAT LOOP, IN ONE UNINTERRUPTED STEPPED-FRAME RUN.
+//
+// Every earlier section proves one mechanism in isolation. This one proves they
+// compose: a single continuous drive through the REAL loop (h.raf.step, so
+// Game.frame -> Game.step -> Enemies.update / updateProjectiles / Weapons.update
+// AND the render/present path all run every frame) in which the enemy wakes,
+// closes, telegraphs, throws a fireball that takes the player's health, is shot
+// exactly as many times as its health requires, dies, is counted, and leaves a
+// corpse that still renders and can never be shot again.
+//
+// NOTHING is poked except the actors' positions and the scripted player's INTENT.
+// The intent changes on OBSERVED events, exactly as a real player's would: hold
+// fire once you have been hit, stop firing once the thing is dead. It is one run
+// throughout — no rebuild, no reset, no state written by hand.
+// ===========================================================================
+(function () {
+  scenario(2.5, 4.5, 1, 0);
+  Weapons.reset();
+  Game.resetStats();
+
+  const START = 6.5;                     // 4 cells: inside ATTACK_RANGE and SIGHT
+  const e = Enemies.add(START, 4.5);
+  const killShots = Math.ceil(CONFIG.ENEMY_HEALTH / CONFIG.PISTOL_DAMAGE);
+
+  assert(e.state === Enemies.IDLE && e.health === CONFIG.ENEMY_HEALTH &&
+    distToPlayer(e) <= CONFIG.ENEMY_ATTACK_RANGE &&
+    Level.lineOfSight(e.x, e.y, Player.x, Player.y) === true &&
+    Combat.health === CONFIG.PLAYER_START_HEALTH && Game.kills === 0,
+    '5-0. precondition: a full-health IDLE enemy ' + distToPlayer(e).toFixed(1) + ' cells in front ' +
+    'of a full-health player in clear sight, inside ENEMY_ATTACK_RANGE, tally at 0. The kill needs ' +
+    'ceil(ENEMY_HEALTH / PISTOL_DAMAGE) = ceil(' + CONFIG.ENEMY_HEALTH + '/' +
+    CONFIG.PISTOL_DAMAGE + ') = ' + killShots + ' shots');
+
+  const framesBefore = Game.frames;
+  const putBefore = h.putCount();
+  const bulletsBefore = Combat.ammo.bullets;
+  const shotsBefore = Weapons.shotsFired;
+  resetSpawnLog();
+
+  // The run. Phase A: the player watches (no fire) until it has been hit. Phase B:
+  // the player holds fire until the enemy is dead. Phase C: fire released while
+  // the fall plays out. One loop, one continuous stream of frames.
+  let wokeF = -1, closedTo = distToPlayer(e), projF = -1, hurtF = -1;
+  let firingF = -1, deathF = -1, corpseF = -1;
+  let bulletsAtKill = -1, shotsAtKill = -1, killsAtDeath = -1;
+  const aliveAfterShot = [];
+  let prevShots = Weapons.shotsFired;
+  let phase = 'A';
+  setIntent(null);
+
+  for (let f = 0; f < 900; f++) {
+    raf.step(FRAME_MS);
+    const d = distToPlayer(e);
+    if (d < closedTo) closedTo = d;
+    if (wokeF < 0 && e.state !== Enemies.IDLE) wokeF = f;
+    if (projF < 0 && spawnLog.length > 0) projF = f;
+    if (hurtF < 0 && Combat.health < CONFIG.PLAYER_START_HEALTH) hurtF = f;
+
+    // Count each shot AS IT LANDS, so "not one shot fewer" is measured rather
+    // than inferred: aliveAfterShot[n] is the enemy's alive flag right after the
+    // (n+1)th shot resolved.
+    if (Weapons.shotsFired > prevShots) {
+      prevShots = Weapons.shotsFired;
+      aliveAfterShot.push(e.alive);
+    }
+
+    if (phase === 'A' && hurtF >= 0) {
+      phase = 'B';
+      firingF = f;
+      setIntent({ fire: true });         // shoot back
+    }
+    if (phase === 'B' && e.alive === false) {
+      phase = 'C';
+      deathF = f;
+      bulletsAtKill = Combat.ammo.bullets;
+      shotsAtKill = Weapons.shotsFired;
+      killsAtDeath = Game.kills;
+      setIntent(null);                   // stop shooting a dead enemy
+    }
+    if (corpseF < 0 && e.state === Enemies.CORPSE) corpseF = f;
+    if (corpseF >= 0 && hurtF >= 0) break;
+  }
+
+  // --- the chain, in order --------------------------------------------------
+  // It hunted and it closed by more than a whole cell, and it never came NEARER
+  // than ENEMY_STOP_RANGE. It does not reach the stop range exactly here and is
+  // not asked to: the fight kills it first, and it stands still through every
+  // attack windup on the way in. 1d owns the exact landing-on-the-stop-range proof
+  // in open space with the attack gate parked.
+  const startDist = START - 2.5;
+  assert(wokeF >= 0 && closedTo < startDist - 1 &&
+    closedTo >= CONFIG.ENEMY_STOP_RANGE - 1e-9,
+    '5a. the enemy WOKE at frame ' + wokeF + ' and CLOSED from ' + startDist.toFixed(2) + ' to ' +
+    closedTo.toFixed(3) + ' cells — more than a full cell of hunting, and never nearer than ' +
+    'ENEMY_STOP_RANGE (' + CONFIG.ENEMY_STOP_RANGE + ')');
+
+  assert(projF > wokeF && hurtF > projF && Combat.health < CONFIG.PLAYER_START_HEALTH,
+    '5b. it then FIRED (frame ' + projF + ', after waking) and the fireball took the player\'s ' +
+    'health (frame ' + hurtF + ', after the shot) — ' + CONFIG.PLAYER_START_HEALTH + ' -> ' +
+    Combat.health);
+
+  const shotsUsed = shotsAtKill - shotsBefore;
+  const notOneFewer = aliveAfterShot.length >= killShots &&
+    aliveAfterShot.slice(0, killShots - 1).every((a) => a === true) &&
+    aliveAfterShot[killShots - 1] === false;
+  assert(shotsUsed === killShots && notOneFewer && deathF > firingF,
+    '5c. the player then needed EXACTLY ' + killShots + ' pistol shots to kill it (frame ' + deathF +
+    ', after opening fire at ' + firingF + ') — the enemy was still alive after each of the first ' +
+    (killShots - 1) + ' shots [' + aliveAfterShot.slice(0, killShots).join(', ') + '], so not one ' +
+    'shot fewer would have done it');
+
+  assert(bulletsBefore - bulletsAtKill === killShots,
+    '5d. WEAP-05: Combat.ammo.bullets fell by exactly those ' + killShots + ' shots (' +
+    bulletsBefore + ' -> ' + bulletsAtKill + ') — no shot was free and none was double-charged');
+
+  assert(killsAtDeath === 1 && Game.kills === 1 && Game.totalKills >= 1,
+    '5e. ENEM-05: Game.kills is exactly 1 on the death frame and still 1 at the end of the run (' +
+    Game.kills + ' of ' + Game.totalKills + ')');
+
+  assert(corpseF > deathF && e.state === Enemies.CORPSE && e.sprite === 'enemyCorpse' &&
+    e.active === true && e.alive === false,
+    '5f. the fall PLAYED OUT and settled into a corpse at frame ' + corpseF + ' (after the death at ' +
+    deathF + '): corpse state, corpse frame, active TRUE, alive FALSE');
+
+  const m = measureDrawn(e);
+  assert(m.drawn > 0 && m.drawnInactive === 0,
+    '5g. the corpse STILL RENDERS at the end of the run — ' + m.drawn + ' pixels drawn, and 0 with ' +
+    'its active flag forced false');
+
+  // ...and it cannot be shot again. Same run, same corpse, a real Weapons.fire().
+  Weapons.cooldown = 0;
+  const bulletsPre = Combat.ammo.bullets;
+  const killsPre = Game.kills;
+  Weapons.fire();
+  assert(Weapons.lastHitCount === 0 && Weapons.lastTarget !== e && Game.kills === killsPre &&
+    e.health === 0 && e.state === Enemies.CORPSE &&
+    Combat.ammo.bullets === bulletsPre - 1,
+    '5h. ENEM-04/ENEM-05 (T-05-16/T-05-17): a real shot straight at the corpse hits nothing, does ' +
+    'not touch the tally (' + Game.kills + '), and leaves the corpse untouched — while still ' +
+    'costing the bullet it fired, because firing at nothing is not free');
+
+  const framesRun = Game.frames - framesBefore;
+  const putRun = h.putCount() - putBefore;
+  assert(framesRun > 0 && putRun === framesRun,
+    '5i. throughout the whole run the frame was presented exactly once per frame (' + putRun +
+    ' presents / ' + framesRun + ' frames) — the death animation, the corpse and the tally never ' +
+    'perturbed the single-blit-per-frame contract');
 })();
 
 finish('ALL_COMBAT_CONTRACTS_PASS');
