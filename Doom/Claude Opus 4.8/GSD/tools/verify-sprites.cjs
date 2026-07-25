@@ -258,10 +258,13 @@ function setEntities(list) {
 
   // Positive cross-check (independent of value inequality): find one opaque
   // source texel of the front sprite whose column passes occlusion, and assert
-  // the rendered pixel equals the RAW (unshaded) sprite texel written there.
+  // the rendered pixel equals the DEPTH-SHADED source texel written there —
+  // applyShade(rawTexel, shadeFactor(transformY, false)), tying the render to the
+  // shared shade helpers with no ULP drift.
   const tex = Sprites.map.enemy;
   const TEXW = tex.width, TEXH = tex.height, tbuf = tex.buf32;
   const zbuf = Framebuffer.zBuffer; // wall depth for the front pose (just rendered)
+  const frontShade = Raycaster.shadeFactor(pf.transformY, false);
   let proven = false;
   for (let x = pf.drawStartX; x < pf.drawEndX && !proven; x++) {
     if (!(pf.transformY > 0 && pf.transformY < zbuf[x])) continue; // occlusion must pass
@@ -272,9 +275,10 @@ function setEntities(list) {
       if (texY < 0) texY = 0; else if (texY > TEXH - 1) texY = TEXH - 1;
       const packed = tbuf[texY * TEXW + texX] >>> 0;
       if (((packed >>> 24) & 0xff) < Sprites.ALPHA_KEY) continue; // transparent texel
-      assert((r.cur[y * W + x] >>> 0) === packed,
-        '2j. a drawn front-sprite pixel === the RAW opaque source texel (unshaded tracer) ' +
-        'at column ' + x + ', row ' + y);
+      const shaded = Raycaster.applyShade(packed, frontShade) >>> 0;
+      assert((r.cur[y * W + x] >>> 0) === shaded,
+        '2j. a drawn front-sprite pixel === the depth-SHADED source texel ' +
+        'applyShade(raw, shadeFactor(transformY,false)) at column ' + x + ', row ' + y);
       proven = true;
       break;
     }
@@ -439,6 +443,234 @@ function drawnColumnExtent(bg, cur, W, H) {
   const wBasedDim = Math.abs(Math.floor(W / p.transformY)) * enemy.scale;
   assert(p.spriteDim !== wBasedDim && p.spriteDim === Math.abs(Math.floor(H / p.transformY)) * enemy.scale,
     '4e. projectSprite spriteDim uses H (' + p.spriteDim + '), not W (' + wBasedDim + ')');
+})();
+
+// ---------------------------------------------------------------------------
+// The full projection recompute (origins + bounds) used by the per-column
+// clipping/shading proofs. Extends projectSprite's return with the fields those
+// proofs index (originX/originY/drawStartY/drawEndY are already returned).
+// ---------------------------------------------------------------------------
+
+// The set of columns the sprite pass WOULD write given a zBuffer: a column is
+// written iff (optionally) occlusion passes AND at least one of its texels is
+// opaque (source alpha >= ALPHA_KEY). Recomputed from the renderer's exact texel
+// mapping — NOT a call into Entities — so a shared bug cannot hide.
+function predictedDrawnColumns(pose, e, zbuf, W, H, requireOcclusion) {
+  const tex = Sprites.map[e.sprite];
+  const TEXW = tex.width, TEXH = tex.height, tb = tex.buf32;
+  const p = projectSprite(pose, e, W, H);
+  const cols = new Set();
+  for (let x = p.drawStartX; x < p.drawEndX; x++) {
+    if (requireOcclusion && !(p.transformY > 0 && p.transformY < zbuf[x])) continue;
+    let texX = Math.floor((x - p.originX) * TEXW / p.spriteDim);
+    if (texX < 0) texX = 0; else if (texX > TEXW - 1) texX = TEXW - 1;
+    let anyOpaque = false;
+    for (let y = p.drawStartY; y < p.drawEndY; y++) {
+      let texY = Math.floor((y - p.originY) * TEXH / p.spriteDim);
+      if (texY < 0) texY = 0; else if (texY > TEXH - 1) texY = TEXH - 1;
+      if (((tb[texY * TEXW + texX] >>> 24) & 0xff) >= Sprites.ALPHA_KEY) { anyOpaque = true; break; }
+    }
+    if (anyOpaque) cols.add(x);
+  }
+  return cols;
+}
+
+function setsEqual(a, b) {
+  if (a.size !== b.size) return false;
+  for (const v of a) if (!b.has(v)) return false;
+  return true;
+}
+
+// Mean RGB brightness read at EXACTLY the pixels the sprite pass writes (occlusion
+// passes AND source alpha >= ALPHA_KEY), sampled from `cur`. Independent of the
+// background-diff, so a shaded-equals-bg coincidence cannot bias it (harness note).
+function meanShadedBrightness(pose, e, zbuf, cur, W, H) {
+  const tex = Sprites.map[e.sprite];
+  const TEXW = tex.width, TEXH = tex.height, tb = tex.buf32;
+  const p = projectSprite(pose, e, W, H);
+  let sum = 0, cnt = 0;
+  for (let x = p.drawStartX; x < p.drawEndX; x++) {
+    if (!(p.transformY > 0 && p.transformY < zbuf[x])) continue;
+    let texX = Math.floor((x - p.originX) * TEXW / p.spriteDim);
+    if (texX < 0) texX = 0; else if (texX > TEXW - 1) texX = TEXW - 1;
+    for (let y = p.drawStartY; y < p.drawEndY; y++) {
+      let texY = Math.floor((y - p.originY) * TEXH / p.spriteDim);
+      if (texY < 0) texY = 0; else if (texY > TEXH - 1) texY = TEXH - 1;
+      if (((tb[texY * TEXW + texX] >>> 24) & 0xff) < Sprites.ALPHA_KEY) continue;
+      const c = cur[y * W + x] >>> 0;
+      sum += (c & 0xff) + ((c >> 8) & 0xff) + ((c >> 16) & 0xff);
+      cnt++;
+    }
+  }
+  return { mean: cnt ? sum / cnt : 0, cnt };
+}
+
+// ===========================================================================
+// 5. PROOF D — PARTIAL-WALL PER-COLUMN CLIPPING (ENT-02, 04-CONTEXT decision 7a).
+//    A SINGLE billboard whose projected column span STRADDLES a wall edge: the
+//    isolated pillar at cell (6,6) sits between the player at (3.5,8.5) [facing
+//    up-right, setDir(1,-1)] and an enemy at (8.5,3.5). Some columns of the ONE
+//    sprite are nearer than the wall depth (drawn) and some are behind it
+//    (occluded) — a finer test than 04-01's whole-sprite cut. The drawn columns
+//    must EXACTLY equal the columns the renderer would write (occlusion passes AND
+//    the column has an opaque texel); occluded columns draw nothing. The
+//    falsifiability control forces zBuffer to +inf (no wall) and shows the SAME
+//    entity then draws ALL its in-bounds opaque columns.
+// ===========================================================================
+(function () {
+  const W = Framebuffer.width, H = Framebuffer.height;
+
+  assert(Level.isSolid(6, 6),
+    '5a. precondition: an isolated pillar occupies cell (6,6)');
+
+  Player.x = 3.5; Player.y = 8.5;
+  Player.setDir(1, -1);
+  const pose = poseOf();
+
+  const e = { x: 8.5, y: 3.5, sprite: 'enemy', scale: 1.0, onFloor: true };
+  const p = projectSprite(pose, e, W, H);
+  assert(p.onScreen && p.spriteDim > 0 && p.drawEndX > p.drawStartX,
+    '5b. the straddling enemy projects on-screen with positive width (spriteDim ' + p.spriteDim + ')');
+
+  // Snapshot the wall zBuffer for this pose (the exact buffer the sprite pass reads).
+  Raycaster.spritePass = null;
+  Raycaster.render();
+  const zbuf = Framebuffer.zBuffer.slice();
+
+  // Partition the projected columns into predicted-visible vs predicted-occluded.
+  const occludedCols = new Set(), visibleCols = new Set();
+  for (let x = p.drawStartX; x < p.drawEndX; x++) {
+    if (p.transformY < zbuf[x]) visibleCols.add(x); else occludedCols.add(x);
+  }
+  assert(visibleCols.size > 0 && occludedCols.size > 0,
+    '5c. the ONE billboard straddles a wall edge: ' + visibleCols.size + ' visible + ' +
+    occludedCols.size + ' occluded columns (per-column clip, not whole-sprite)');
+
+  // The renderer would write only the visible columns that also carry an opaque
+  // texel; occluded columns must write nothing.
+  const predictedDrawn = predictedDrawnColumns(pose, e, zbuf, W, H, true);
+  assert(predictedDrawn.size > 0,
+    '5d. some visible columns carry opaque texels (predicted-drawn is non-empty)');
+
+  // Render for real and compare the actual drawn columns to the prediction.
+  setEntities([e]);
+  const r = renderBgAndSprites();
+  const actualDrawn = drawnColumns(r.bg, r.cur, W, H);
+  assert(setsEqual(actualDrawn, predictedDrawn),
+    '5e. ENT-02: drawn columns EXACTLY equal the predicted per-column-visible+opaque set (' +
+    actualDrawn.size + ' drawn)');
+
+  // Every occluded column drew zero sprite pixels.
+  let occludedAllZero = true, sampleBad = -1;
+  for (const x of occludedCols) {
+    for (let y = p.drawStartY; y < p.drawEndY; y++) {
+      if (r.cur[y * W + x] !== r.bg[y * W + x]) { occludedAllZero = false; sampleBad = x; break; }
+    }
+    if (!occludedAllZero) break;
+  }
+  assert(occludedAllZero,
+    '5f. ENT-02: EVERY occluded column drew zero sprite pixels (partial wall clips per column)' +
+    (occludedAllZero ? '' : ' — column ' + sampleBad + ' leaked'));
+
+  // There is at least one occluded column that DOES carry an opaque texel, so the
+  // clip is genuinely hiding sprite content (not just clipping empty margin).
+  const wouldDrawNoOcc = predictedDrawnColumns(pose, e, zbuf, W, H, false);
+  let occludedOpaqueExists = false;
+  for (const x of wouldDrawNoOcc) if (occludedCols.has(x)) { occludedOpaqueExists = true; break; }
+  assert(occludedOpaqueExists,
+    '5g. at least one occluded column WOULD have drawn an opaque texel — the clip hides real content');
+
+  // Falsifiability CONTROL: force zBuffer to +inf (no wall) and draw the SAME
+  // entity directly; every in-bounds opaque column now draws (nothing occluded).
+  Raycaster.spritePass = null;
+  Raycaster.render();
+  const bg2 = Framebuffer.buf32.slice();
+  for (let i = 0; i < Framebuffer.zBuffer.length; i++) Framebuffer.zBuffer[i] = Infinity;
+  setEntities([e]);
+  Entities.render();                       // draw with no occlusion, onto bg2
+  const ctrl = Framebuffer.buf32.slice();
+  const ctrlDrawn = drawnColumns(bg2, ctrl, W, H);
+  assert(setsEqual(ctrlDrawn, wouldDrawNoOcc),
+    '5h. CONTROL: with zBuffer=+inf the SAME entity draws ALL its in-bounds opaque columns (' +
+    ctrlDrawn.size + ') — the partial clip above was the wall, not the projection');
+  assert(ctrlDrawn.size > actualDrawn.size,
+    '5i. CONTROL: the no-wall render draws strictly MORE columns than the occluded render (' +
+    ctrlDrawn.size + ' > ' + actualDrawn.size + ')');
+})();
+
+// ===========================================================================
+// 6. PROOF E — DEPTH FOG SHADING (04-CONTEXT decision 6). The SAME enemy near
+//    (d=4) and far (2d=8) on the open row 4 with clear LOS. (a) a sampled drawn
+//    pixel equals applyShade(rawTexel, shadeFactor(transformY,false)) EXACTLY
+//    (=== , tying the render to the shared shade helpers with no ULP drift); (b)
+//    the far sprite's mean drawn brightness is strictly LESS than the near
+//    sprite's (monotonic fog, same curve as walls). Falsifiability control: the
+//    RAW (unshaded) far texel differs from the shaded drawn pixel — shading is
+//    actually applied, not a no-op.
+// ===========================================================================
+(function () {
+  const W = Framebuffer.width, H = Framebuffer.height;
+
+  assert(Level.lineOfSight(2.5, 4.5, 6.5, 4.5) && Level.lineOfSight(2.5, 4.5, 10.5, 4.5),
+    '6a. precondition: clear LOS to the near (d=4) and far (2d=8) enemy on the open row 4');
+
+  Player.x = 2.5; Player.y = 4.5;
+  Player.setDir(1, 0);
+  const pose = poseOf();
+
+  const near = { x: 6.5,  y: 4.5, sprite: 'enemy', scale: 1.0, onFloor: true };
+  const far  = { x: 10.5, y: 4.5, sprite: 'enemy', scale: 1.0, onFloor: true };
+  const pNear = projectSprite(pose, near, W, H);
+  const pFar = projectSprite(pose, far, W, H);
+  const shadeNear = Raycaster.shadeFactor(pNear.transformY, false);
+  const shadeFar = Raycaster.shadeFactor(pFar.transformY, false);
+  assert(shadeFar < shadeNear,
+    '6b. shadeFactor(far) < shadeFactor(near) (' + shadeFar + ' < ' + shadeNear +
+    ') — the shared fog curve darkens the farther sprite');
+
+  const tex = Sprites.map.enemy;
+  const TEXW = tex.width, TEXH = tex.height, tbuf = tex.buf32;
+
+  // --- Exact per-pixel tie to the shared helpers, at the FAR distance ---------
+  setEntities([far]);
+  Raycaster.spritePass = null; Raycaster.render();
+  const zFar = Framebuffer.zBuffer.slice();
+  let rFar = renderBgAndSprites();
+  let farProven = false, rawDiffered = false;
+  for (let x = pFar.drawStartX; x < pFar.drawEndX && !farProven; x++) {
+    if (!(pFar.transformY > 0 && pFar.transformY < zFar[x])) continue;
+    let texX = Math.floor((x - pFar.originX) * TEXW / pFar.spriteDim);
+    if (texX < 0) texX = 0; else if (texX > TEXW - 1) texX = TEXW - 1;
+    for (let y = pFar.drawStartY; y < pFar.drawEndY; y++) {
+      let texY = Math.floor((y - pFar.originY) * TEXH / pFar.spriteDim);
+      if (texY < 0) texY = 0; else if (texY > TEXH - 1) texY = TEXH - 1;
+      const raw = tbuf[texY * TEXW + texX] >>> 0;
+      if (((raw >>> 24) & 0xff) < Sprites.ALPHA_KEY) continue;
+      const shaded = Raycaster.applyShade(raw, shadeFar) >>> 0;
+      assert((rFar.cur[y * W + x] >>> 0) === shaded,
+        '6c. a drawn FAR sprite pixel === applyShade(raw, shadeFactor(transformY,false)) at (' + x + ',' + y + ')');
+      rawDiffered = ((raw >>> 0) !== shaded); // shading actually changed the value
+      farProven = true;
+      break;
+    }
+  }
+  assert(farProven, '6d. a far opaque, occlusion-passing texel was located and its shade verified');
+  assert(rawDiffered,
+    '6e. CONTROL: the RAW far texel differs from the shaded drawn pixel — fog shading is applied, not a no-op');
+  const meanFar = meanShadedBrightness(pose, far, zFar, rFar.cur, W, H);
+
+  // --- Near distance mean brightness -----------------------------------------
+  setEntities([near]);
+  Raycaster.spritePass = null; Raycaster.render();
+  const zNear = Framebuffer.zBuffer.slice();
+  const rNear = renderBgAndSprites();
+  const meanNear = meanShadedBrightness(pose, near, zNear, rNear.cur, W, H);
+
+  assert(meanNear.cnt > 0 && meanFar.cnt > 0,
+    '6f. both near and far enemies drew shaded pixels (' + meanNear.cnt + ', ' + meanFar.cnt + ')');
+  assert(meanFar.mean < meanNear.mean,
+    '6g. MONOTONIC FOG: far mean drawn brightness < near mean (' + meanFar.mean.toFixed(1) +
+    ' < ' + meanNear.mean.toFixed(1) + ') — distant sprites fog like the wall behind them');
 })();
 
 finish('ALL_SPRITE_CONTRACTS_PASS');

@@ -34,10 +34,13 @@
  *       distances) with an in-place INSERTION sort — no Array.sort closure, no
  *       per-frame allocation.
  *
- * DEFERRED (04-02, not an architecture gap): sprite fog-shading via
- * Raycaster.shadeFactor/applyShade by transformY. This tracer writes texels
- * UNSHADED so the projection + occlusion coupling is proven in isolation first;
- * 04-02 is a functionality fill that adds the shade on the written texel.
+ * FOG SHADE (04-02, 04-CONTEXT decision 6): each WRITTEN sprite texel is shaded
+ * by transformY (its depth) via Raycaster.shadeFactor/applyShade — the SAME curve
+ * the wall pass uses — so a distant enemy fades consistently with the wall behind
+ * it. The alpha-key transparency test runs on the RAW texel BEFORE shading;
+ * applyShade forces the written texel opaque. Occlusion is per-column against the
+ * live zBuffer, so a single billboard straddling a wall edge is clipped column by
+ * column (near-side columns drawn, far-side columns skipped).
  *
  * BEHAVIOUR fields (health/state/AI) are NOT here — Phase 5 owns them. Phase 4
  * renders static billboards only.
@@ -134,6 +137,11 @@ var Entities = {
     var planeX = Player.planeX, planeY = Player.planeY;
     var ALPHA_KEY = Sprites.ALPHA_KEY;
     var NEAR = Entities.NEAR;
+    // Shade helpers hoisted to locals ONCE (no per-entity/per-texel property read).
+    // Sprites fog with the SAME shadeFactor/applyShade the wall pass uses so a
+    // distant enemy fades exactly like the wall behind it (04-CONTEXT decision 6).
+    var shadeFactor = Raycaster.shadeFactor;
+    var applyShade = Raycaster.applyShade;
 
     Entities._ensureScratch(n);
     var order = Entities._order;
@@ -184,6 +192,17 @@ var Entities = {
       var transformX = invDet * (dirY * relX - dirX * relY);
       var transformY = invDet * (-planeY * relX + planeX * relY);
       if (transformY <= NEAR) continue;                 // behind camera / at plane
+
+      // FOG SHADE (04-CONTEXT decision 6). transformY (the sprite DEPTH) is
+      // constant for the whole billboard, so the depth shade is computed ONCE per
+      // entity here — hoisted above the stripe loop exactly as the wall pass
+      // computes colShade once per column. The y-side flag is false (a billboard
+      // has no wall side). Same curve as walls => a distant enemy fogs
+      // consistently with the wall behind it. applyShade forces alpha opaque, so
+      // the alpha-key transparency test below runs on the RAW packed texel BEFORE
+      // shading — shading can neither resurrect a skipped texel nor blank a
+      // written one (threat T-04-04).
+      var spriteShade = shadeFactor(transformY, false);
 
       // 4. Projection. Screen HEIGHT H drives BOTH width and height scale so the
       //    billboard stays square on any viewport aspect (using W would stretch
@@ -239,12 +258,16 @@ var Entities = {
 
           var packed = tbuf[texY * TEXW + col];
           // 8. TRANSPARENCY (04-CONTEXT decision 5, ENT-03) — the Phase-1 color
-          //    key: a texel with alpha byte < ALPHA_KEY (128) is transparent;
-          //    leave the background pixel intact. Opaque texels are written
-          //    UNSHADED in this tracer (04-02 adds the depth fog). Never writes
-          //    zBuffer.
+          //    key tested on the RAW texel: a texel with alpha byte < ALPHA_KEY
+          //    (128) is transparent; leave the background pixel intact. Nearest
+          //    sampling + binary baked alpha + NO canvas smoothing => structurally
+          //    no halo. Never writes zBuffer.
           if (((packed >>> 24) & 0xff) < ALPHA_KEY) continue;
-          buf[yy * W + stripe] = packed;
+          // 9. FOG SHADE the WRITTEN texel by depth (04-CONTEXT decision 6).
+          //    applyShade scales RGB by the fixed-point depth shade and forces
+          //    the alpha byte opaque (0xFF), so every written sprite pixel is
+          //    opaque — no partial-alpha fringe.
+          buf[yy * W + stripe] = applyShade(packed, spriteShade);
         }
       }
     }
