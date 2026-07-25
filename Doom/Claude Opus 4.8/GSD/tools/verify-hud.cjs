@@ -925,4 +925,224 @@ function poseRecording(x, y, dx, dy) {
     'restart resurrected the world and the map with it');
 })();
 
+// ===========================================================================
+// ===========================================================================
+// SECTION 3 — THE EVENT MESSAGES AND THE EXACTLY-ONCE PROOF (HUD-04;
+//             06-CONTEXT D-02, RESOLVED IN 06-01 AND EXTENDED HERE).
+//
+// THE LOCKED RESOLUTION: Game.renderMessage inside Raycaster.overlayPasses is the
+// ONE AND ONLY renderer of the event line. js/hud.js adds no second one. This
+// section's job is to prove that the TWO NEW EVENT MESSAGES 06-02 posts ride that
+// same single renderer — and that nothing draws them twice.
+//
+// tools/verify-state.cjs section 4 armed this gate for the pickup message; this
+// section EXTENDS it rather than replacing it. Both still run.
+// ===========================================================================
+// ===========================================================================
+
+const FRAME_DT = FRAME_MS / 1000;
+
+// A production-shaped intent record. Weapons.update is driven with exactly the
+// record Game.step hands it, so these scenarios run the real decision path.
+function intent(fire, slot) {
+  return {
+    forward: 0, strafe: 0, turn: 0, mouseDX: 0, run: false,
+    fire: fire === true, weaponSlot: slot || 0
+  };
+}
+
+const SELECT_TEXT = Weapons.EVENT_TEXT.select;
+const DRY_TEXT = Weapons.EVENT_TEXT.dryFire;
+
+// ---------------------------------------------------------------------------
+// 3a. THE WEAPON-SWITCH MESSAGE — one per REAL change, and nothing at all for a
+//     repeat press or a weapon the player does not own (threat T-06-13).
+// ---------------------------------------------------------------------------
+(function () {
+  freshPlaying();
+  assert(Combat.hasShotgun === false && Combat.weapon === Combat.PISTOL,
+    '3a-0. setup: a fresh run starts with the pistol and no shotgun');
+
+  const p0 = Game.messagesPosted;
+  Weapons.update(FRAME_DT, intent(false, 2));
+  assert(Game.messagesPosted === p0 && Combat.weapon === Combat.PISTOL,
+    '3a-i. CONTROL: selecting a weapon the player does not OWN posts nothing (' +
+    Game.messagesPosted + ' still) — the post hangs on Combat.selectWeapon reporting ' +
+    'a real change, and it refused');
+
+  Combat.grantShotgun();
+  const p1 = Game.messagesPosted;
+  Weapons.update(FRAME_DT, intent(false, 2));
+  const msg = Game.activeMessage();
+  assert(Game.messagesPosted === p1 + 1 && Combat.weapon === Combat.SHOTGUN &&
+    msg !== null && msg.text === SELECT_TEXT.shotgun,
+    '3a-ii. HUD-04: switching pistol -> shotgun posts EXACTLY ONE message (' + p1 +
+    ' -> ' + Game.messagesPosted + ') naming the weapon ("' + (msg && msg.text) + '")');
+  assert(msg !== null && msg.text.indexOf('SHOTGUN') >= 0,
+    '3a-iii. and the text really NAMES the shotgun rather than being a generic ' +
+    '"weapon changed" line');
+
+  const p2 = Game.messagesPosted;
+  for (let i = 0; i < 30; i++) Weapons.update(FRAME_DT, intent(false, 2));
+  assert(Game.messagesPosted === p2,
+    '3a-iv. CONTROL for 3a: pressing the SAME select for 30 more frames posts NOTHING ' +
+    '(' + Game.messagesPosted + ' still) — a held key cannot flood the four-slot ring');
+})();
+
+// ---------------------------------------------------------------------------
+// 3b. THE OUT-OF-AMMO MESSAGE — ONE per dry TRIGGER, not one per dry FRAME, and
+//     the edge re-arms after a shot that actually succeeds.
+// ---------------------------------------------------------------------------
+(function () {
+  freshPlaying();
+  Combat.ammo[ammoField()] = 0;
+  Weapons.cooldown = 0;
+
+  const posted0 = Game.messagesPosted;
+  const dry0 = Weapons.dryFires;
+  for (let i = 0; i < 120; i++) Weapons.update(FRAME_DT, intent(true, 0));
+  const msg = Game.activeMessage();
+
+  assert(Weapons.dryFires === dry0 + 120,
+    '3b-0. setup: the held trigger really DID call Weapons.fire() on all 120 frames ' +
+    '(' + dry0 + ' -> ' + Weapons.dryFires + ' refusals) — a refused shot never ' +
+    'charges the cooldown, which is exactly why an unguarded post would flood');
+  assert(Game.messagesPosted === posted0 + 1 && msg !== null && msg.text === DRY_TEXT,
+    '3b-i. HUD-04: holding the trigger for 120 frames at zero ammo posts EXACTLY ONE ' +
+    'out-of-ammo message (' + posted0 + ' -> ' + Game.messagesPosted + ', "' +
+    (msg && msg.text) + '") — the post hangs on the false-to-true edge of ' +
+    'Weapons.lastDryFire, not on the refusal');
+
+  // THE EDGE RE-ARMS: one real shot clears the flag, so running dry again notifies
+  // again. Without this control, "exactly one" could be satisfied by a latch that
+  // never fires a second time in a whole run.
+  Combat.ammo[ammoField()] = 1;
+  Weapons.cooldown = 0;
+  const shots0 = Weapons.shotsFired;
+  Weapons.update(FRAME_DT, intent(true, 0));
+  assert(Weapons.shotsFired === shots0 + 1 && Weapons.lastDryFire === false &&
+    Combat.ammo[ammoField()] === 0,
+    '3b-1. setup: one shot really left the barrel, clearing the dry-fire flag and ' +
+    'emptying the weapon again');
+
+  Weapons.update(Weapons.cooldown + 0.01, intent(false, 0));   // wait out the cooldown
+  const posted1 = Game.messagesPosted;
+  for (let i = 0; i < 120; i++) Weapons.update(FRAME_DT, intent(true, 0));
+  assert(Game.messagesPosted === posted1 + 1 &&
+    Game.messagesPosted === posted0 + 2,
+    '3b-ii. CONTROL for 3b: after that successful shot, holding the trigger dry again ' +
+    'posts a SECOND message and only a second (total ' + Game.messagesPosted +
+    ' === ' + (posted0 + 2) + ') — the edge genuinely re-arms rather than latching ' +
+    'once for the whole run');
+})();
+
+// ---------------------------------------------------------------------------
+// 3c. AN EVENT MESSAGE EXPIRES EXACTLY LIKE A PICKUP MESSAGE — after
+//     CONFIG.MESSAGE_TIME of SIMULATION time, with the just-before and just-after
+//     frames as the paired control.
+// ---------------------------------------------------------------------------
+(function () {
+  freshPlaying();
+  Combat.grantShotgun();
+  Weapons.update(FRAME_DT, intent(false, 2));
+  const slot = Game.activeMessage();
+  assert(slot !== null && slot.text === SELECT_TEXT.shotgun,
+    '3c-0. setup: the weapon-switch message is the active one, stamped at Game.time ' +
+    (slot ? slot.at.toFixed(3) : 'n/a'));
+
+  const at = slot.at;
+  const step = CONFIG.DT_MAX;
+  while (Game.time - at < CONFIG.MESSAGE_TIME - step) Game.step(step);
+  const beforeAge = Game.time - at;
+  const stillThere = Game.activeMessage();
+
+  while (Game.time - at <= CONFIG.MESSAGE_TIME) Game.step(step);
+  const afterAge = Game.time - at;
+  const gone = Game.activeMessage();
+
+  assert(stillThere !== null && stillThere.text === SELECT_TEXT.shotgun &&
+    beforeAge < CONFIG.MESSAGE_TIME,
+    '3c-i. HUD-04: at age ' + beforeAge.toFixed(6) + 's the event message is STILL ' +
+    'active (CONFIG.MESSAGE_TIME is ' + CONFIG.MESSAGE_TIME + 's)');
+  assert(gone === null && afterAge > CONFIG.MESSAGE_TIME,
+    '3c-ii. CONTROL for 3c: at age ' + afterAge.toFixed(6) + 's — one frame later, ' +
+    'past CONFIG.MESSAGE_TIME — it has EXPIRED, measured against Game.time exactly ' +
+    'as a pickup message is');
+})();
+
+// ---------------------------------------------------------------------------
+// 3d. THE DOUBLE-DRAW GATE, EXTENDED TO THE EVENT MESSAGES (threat T-06-14).
+//
+//     With an event message active, ONE recorded frame must show:
+//       . ZERO hud text calls carrying that text        (the overlay adds nothing)
+//       . a framebuffer that DIFFERS from the same frame with the ring cleared
+//         and Game.messageBox.drawn true                (the one renderer drew it)
+//     The second half is the first half's control: without it, "no hud text" would
+//     be satisfied by a message nobody draws at all.
+// ---------------------------------------------------------------------------
+(function () {
+  freshPlaying();
+  Combat.grantShotgun();
+  Weapons.update(FRAME_DT, intent(false, 2));
+  const TEXT = SELECT_TEXT.shotgun;
+  assert(Game.activeMessage() !== null && Game.activeMessage().text === TEXT,
+    '3d-0. setup: the EVENT message "' + TEXT + '" is active, posted through the real ' +
+    'Weapons.update path');
+
+  Raycaster.render();
+  const withMsg = Framebuffer.buf32.slice();
+  const boxW = Game.messageBox.w;
+  Game.clearMessages();
+  Raycaster.render();
+  const withoutMsg = Framebuffer.buf32.slice();
+  let differing = 0;
+  for (let i = 0; i < withMsg.length; i++) if (withMsg[i] !== withoutMsg[i]) differing += 1;
+
+  assert(differing > 0 && boxW > 0,
+    '3d-i. CONTROL for 3d: a frame rendered with the event message active differs ' +
+    'from the same frame with the ring cleared in ' + differing + ' framebuffer ' +
+    'pixels (box ' + boxW + 'px wide) — the ONE renderer really is drawing it');
+
+  // Repost through the real path (a switch back and forth), then record a frame.
+  Combat.selectWeapon(Combat.PISTOL);
+  Weapons.update(FRAME_DT, intent(false, 2));
+  assert(Game.activeMessage() !== null && Game.activeMessage().text === TEXT,
+    '3d-1. setup: the same event message is active again on the recorded frame');
+
+  const calls = recordFrame();
+  const offenders = textsOf(calls).filter((t) => t.indexOf(TEXT) >= 0);
+  assert(offenders.length === 0,
+    '3d-ii. THE DOUBLE-DRAW GATE: the recorded frame made ZERO hud fillText/strokeText ' +
+    'calls containing the event message (' + offenders.length + ' offenders) — the ' +
+    'overlay adds no second renderer');
+  assert(Game.messageBox.drawn === true,
+    '3d-iii. and on THAT SAME FRAME Game.renderMessage did draw it into the ' +
+    'framebuffer (messageBox.drawn) — so the message was drawn exactly ONCE, in ' +
+    'exactly one place, on one frame');
+})();
+
+// ---------------------------------------------------------------------------
+// 3e. THE OVERLAY ARRAY IS UNCHANGED — a STRICT COUNT, not an indexOf. Two
+//     registrations of the same function would draw the line twice and an indexOf
+//     would never notice.
+// ---------------------------------------------------------------------------
+(function () {
+  let count = 0;
+  for (const p of Raycaster.overlayPasses) if (p === Game.renderMessage) count += 1;
+  assert(count === 1,
+    '3e-i. Raycaster.overlayPasses still contains Game.renderMessage EXACTLY ONCE ' +
+    '(counted, not indexOf)');
+  assert(Raycaster.overlayPasses.length === 2 &&
+    Raycaster.overlayPasses[0] === Weapons.renderViewmodel &&
+    Raycaster.overlayPasses[1] === Game.renderMessage,
+    '3e-ii. and the array is still exactly two passes with the VIEWMODEL FIRST — ' +
+    '06-02 added no overlay pass and reordered none (length ' +
+    Raycaster.overlayPasses.length + ')');
+  assert(typeof HUD.renderMessage === 'undefined' &&
+    !Object.keys(HUD).some((k) => /message/i.test(k)),
+    '3e-iii. and js/hud.js exposes NO message renderer of any kind (' +
+    Object.keys(HUD).filter((k) => /message/i.test(k)).join(', ') + ') — the D-02 ' +
+    'resolution is structural, not a comment');
+})();
+
 finish('ALL_HUD_CONTRACTS_PASS');

@@ -129,6 +129,38 @@ var Weapons = {
     }
   };
 
+  // ===========================================================================
+  // THE EVENT MESSAGE TEXTS (HUD-04, plan 06-02) — data, beside the weapon table,
+  // never string literals scattered through the update path.
+  //
+  // UPPERCASE because the message line is drawn with the 05-04 bitmap font, which
+  // is an uppercase font (an unknown glyph renders blank rather than reading out of
+  // range). Same convention as Pickups.EFFECTS' texts.
+  //
+  // THESE ARE POSTED, NOT DRAWN. js/weapons.js hands text to Game.message() and
+  // stops there: Game.renderMessage inside Raycaster.overlayPasses is the ONE AND
+  // ONLY renderer of the message line (06-CONTEXT D-02, resolved in 06-01).
+  // ===========================================================================
+  Weapons.EVENT_TEXT = {
+    // Keyed by weapon name, so the switch message NAMES the weapon and a third
+    // weapon is a one-line data edit.
+    select: {
+      pistol: 'PISTOL READY.',
+      shotgun: 'SHOTGUN READY!'
+    },
+    dryFire: 'OUT OF AMMO!'
+  };
+
+  // Post an event message. Guarded by typeof so this module stays loadable in
+  // isolation, exactly as js/pickups.js's message post is.
+  function postEvent(text) {
+    if (typeof text !== 'string' || text.length === 0) return false;
+    if (typeof Game === 'undefined' || !Game || typeof Game.message !== 'function') {
+      return false;
+    }
+    return Game.message(text);
+  }
+
   // The angle scratch is sized to the LARGEST pellet count in the table, computed
   // rather than hardcoded so adding a weapon cannot silently overflow it.
   var MAX_PELLETS = 1;
@@ -529,10 +561,34 @@ var Weapons = {
     var slot = intent.weaponSlot;
     if (slot > 0 && slot < Weapons.SLOTS.length) {
       var name = Weapons.SLOTS[slot];
-      if (name) Combat.selectWeapon(name);
+      // THE POST HANGS ON Combat.selectWeapon's RETURN (HUD-04, threat T-06-13).
+      // That return is "did the selection actually CHANGE" — so holding 2, or
+      // pressing 2 while already holding the shotgun, or pressing 2 before the
+      // shotgun has been picked up, all post NOTHING. A post on the key press
+      // instead would fill the four-slot ring in a fifteenth of a second.
+      if (name && Combat.selectWeapon(name) === true) {
+        postEvent(Weapons.EVENT_TEXT.select[name]);
+      }
     }
 
-    if (intent.fire === true && Weapons.cooldown <= 0) Weapons.fire();
+    if (intent.fire === true && Weapons.cooldown <= 0) {
+      // THE OUT-OF-AMMO POST HANGS ON THE FALSE-TO-TRUE EDGE OF lastDryFire, and
+      // the previous value has to be captured BEFORE the call because fire() is
+      // what writes it (threat T-06-13).
+      //
+      // THIS IS THE WHOLE REASON THE EDGE EXISTS: a refused shot deliberately does
+      // NOT charge the cooldown (see the ammo-gate note above), so a HELD trigger
+      // at zero ammo calls fire() on EVERY SINGLE FRAME — sixty refusals a second.
+      // An unguarded post would overwrite the entire four-slot ring fifteen times
+      // a second and leave the player unable to read any other message. The edge
+      // re-arms the instant a shot actually succeeds (fire() clears the flag), so
+      // picking ammo up and running dry again does notify a second time.
+      var wasDry = Weapons.lastDryFire;
+      Weapons.fire();
+      if (wasDry !== true && Weapons.lastDryFire === true) {
+        postEvent(Weapons.EVENT_TEXT.dryFire);
+      }
+    }
   };
 
 })();

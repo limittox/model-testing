@@ -50,12 +50,34 @@
  * The two are mutually exclusive by construction — HUD.render dispatches on
  * Game.state, so exactly one of them paints on any given frame (D-06).
  *
- * IT ADDS NO MESSAGE RENDERER (06-CONTEXT D-02, resolved). Game.renderMessage
- * stays registered in Raycaster.overlayPasses as the ONE AND ONLY renderer of the
- * event line. Adding a second one here is exactly the double-draw the decision
- * exists to prevent; tools/verify-state.cjs section 4 is the gate that keeps it
- * that way, and tools/verify-hud.cjs section 3 extends that gate to 06-02's
- * weapon-switch and out-of-ammo event messages.
+ * ============================================================================
+ * IT ADDS NO MESSAGE RENDERER — THE D-02 RESOLUTION, LOCKED (06-CONTEXT D-02)
+ * ============================================================================
+ * The event line — pickup messages and 06-02's weapon-switch and out-of-ammo
+ * messages alike — is drawn by Game.renderMessage inside Raycaster.overlayPasses
+ * and BY NOTHING ELSE. This overlay deliberately draws no message text at all.
+ *
+ * WHY, in two parts:
+ *
+ *   (1) IT IS THE OPTION UNDER WHICH EVERY PHASE 1-5 MESSAGE ASSERTION SURVIVES
+ *       UNTOUCHED. verify-pickups asserts the exact two-entry overlay array with
+ *       the message pass at index 1, and its whole section 3 proves the draw by
+ *       framebuffer difference. Moving the line here would have meant rewriting
+ *       those proofs — and a proof you rewrote to make your change pass is not a
+ *       proof.
+ *
+ *   (2) ONE RENDERER IS THE ONLY SHAPE IN WHICH "the message is drawn exactly
+ *       once" IS STRUCTURALLY TRUE RATHER THAN COINCIDENTALLY TRUE. With two
+ *       renderers, single-drawing is a property of whichever conditions happen to
+ *       disagree today; with one, there is no arrangement of state in which the
+ *       line can appear twice.
+ *
+ * 06-02's obligation under HUD-04 was therefore to ADD event messages to that one
+ * renderer (js/weapons.js posts them through Game.message) and to PROVE nothing
+ * draws them twice — not to move the renderer. tools/verify-state.cjs section 4
+ * armed that gate; tools/verify-hud.cjs section 3 extends it to the new messages:
+ * zero hud text calls carrying the text, while the framebuffer difference proves
+ * the text really is being drawn.
  */
 
 var HUD = {
