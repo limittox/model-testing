@@ -96,8 +96,23 @@ var HUD = {
     label: 0,    // label text size, px
     value: 0,    // value text size, px
     labelY: 0,   // the label row's centre line inside the bar
-    valueY: 0    // the value row's centre line inside the bar
-  }
+    valueY: 0,   // the value row's centre line inside the bar
+    mapBox: 0,   // the minimap box's side length, px
+    mapX: 0,     // the minimap box's top-left corner on the hud canvas
+    mapY: 0
+  },
+
+  // --- THE PREBUILT MINIMAP (HUD-05, 06-02) ---------------------------------
+  // The STATIC level grid, painted ONCE into an offscreen canvas and composited
+  // with a SINGLE drawImage per frame. Rebuilt by HUD.reset() (so a restarted,
+  // reparsed level regenerates it) and on a real change of the derived box size —
+  // never per frame. Null until the first build.
+  minimapCanvas: null,
+  minimapScale: 0,    // px per level cell (an INTEGER — no half-pixel cells)
+  minimapGridX: 0,    // the grid's origin INSIDE the minimap canvas (centring)
+  minimapGridY: 0,
+  minimapBuilds: 0    // how many times the grid has been painted; a harness reads
+                      // this to prove the prebuild is not happening every frame
 };
 
 (function () {
@@ -419,6 +434,197 @@ var HUD = {
     return true;
   }
 
+  // ===========================================================================
+  // THE MINIMAP (HUD-05, 06-CONTEXT D-04).
+  //
+  // THE STATIC GRID IS PREBUILT ONCE (threat T-06-10). A 24x24 level is 576 cells;
+  // painting them cell by cell every frame is 34,560 fillRects a second for a
+  // picture that only changes when the LEVEL does. So the grid is painted once into
+  // an offscreen canvas and the frame path composites it with ONE drawImage — the
+  // per-frame cost is a constant plus one dot per live entity, and it does not
+  // scale with the cell count at all.
+  //
+  // IT IS REBUILT EXACTLY WHEN IT IS STALE, and never otherwise:
+  //   . HUD.reset() — called at boot and by Game.restart() AFTER Level.build() has
+  //     reparsed the map, which is precisely when a derived picture of the map is
+  //     out of date;
+  //   . a real change of the derived box size (a window resize), tested with one
+  //     integer comparison at the top of the per-frame draw.
+  // ===========================================================================
+
+  // The box's side length for a given hud canvas height. Floored to a minimum so a
+  // degenerate viewport yields a tiny map rather than a zero-sized canvas.
+  function mapBoxSize(h) {
+    var box = Math.round(CONFIG.MINIMAP_BOX_FRAC * h);
+    return (box > 8) ? box : 8;
+  }
+
+  function hudHeight() {
+    var c = (typeof Framebuffer !== 'undefined') ? Framebuffer.hudCanvas : null;
+    return (c && c.height > 0) ? c.height : 0;
+  }
+
+  HUD.buildMinimap = function () {
+    if (typeof document === 'undefined' || !document.createElement) return null;
+    if (typeof Level === 'undefined' || !Level.cells) return null;
+    var W = Level.WIDTH, H = Level.HEIGHT;
+    if (!(W > 0) || !(H > 0)) return null;
+
+    var box = mapBoxSize(hudHeight());
+    // An INTEGER cell size, from the LARGER of the two level dimensions, so a
+    // non-square level is scaled uniformly (never stretched to fill the box) and no
+    // cell lands on a half pixel.
+    var scale = Math.floor(box / (W > H ? W : H));
+    if (scale < 1) scale = 1;
+    var gridW = scale * W;
+    var gridH = scale * H;
+    var gx = Math.floor((box - gridW) * 0.5);
+    var gy = Math.floor((box - gridH) * 0.5);
+
+    var canvas = document.createElement('canvas');
+    canvas.width = box;
+    canvas.height = box;
+    var ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    ctx.globalAlpha = CONFIG.MINIMAP_BG_ALPHA;
+    ctx.fillStyle = CONFIG.MINIMAP_BG_COLOR;
+    ctx.fillRect(0, 0, box, box);
+    ctx.globalAlpha = 1;
+
+    // ONE FILLED RECTANGLE PER CELL, coloured by Level.isSolid — the SAME predicate
+    // the collision resolver and the raycaster ask, so the drawn map is the map the
+    // player is actually walking around in and cannot drift from it.
+    for (var my = 0; my < H; my++) {
+      for (var mx = 0; mx < W; mx++) {
+        ctx.fillStyle = Level.isSolid(mx, my)
+          ? CONFIG.MINIMAP_SOLID_COLOR : CONFIG.MINIMAP_FLOOR_COLOR;
+        ctx.fillRect(gx + mx * scale, gy + my * scale, scale, scale);
+      }
+    }
+
+    ctx.strokeStyle = CONFIG.MINIMAP_BORDER_COLOR;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(0.5, 0.5, box - 1, box - 1);
+
+    HUD.minimapCanvas = canvas;
+    HUD.minimapScale = scale;
+    HUD.minimapGridX = gx;
+    HUD.minimapGridY = gy;
+    HUD.minimapBuilds += 1;
+    return canvas;
+  };
+
+  function updateMapMetrics(m, w, h) {
+    var inset = Math.round(CONFIG.MINIMAP_INSET_FRAC * h);
+    m.mapBox = mapBoxSize(h);
+    m.mapX = inset;
+    m.mapY = inset;
+  }
+
+  // THE ONE WORLD-TO-BOX PROJECTION (threat T-06-12). Every plotted point — the
+  // player, every enemy, every pickup, the exit and the facing tick — goes through
+  // these two functions, which use the SAME scale and origin the grid was painted
+  // with. Two projections would be two chances for the dots and the walls to
+  // disagree about where a corridor is.
+  //
+  // The clamp is written `!(v > lo)` so a NaN coordinate lands on the box edge
+  // rather than escaping it: nothing this function returns can be outside the box.
+  function mapPX(m, wx) {
+    var v = m.mapX + HUD.minimapGridX + wx * HUD.minimapScale;
+    var hi = m.mapX + m.mapBox;
+    if (!(v > m.mapX)) return m.mapX;
+    return (v < hi) ? v : hi;
+  }
+
+  function mapPY(m, wy) {
+    var v = m.mapY + HUD.minimapGridY + wy * HUD.minimapScale;
+    var hi = m.mapY + m.mapBox;
+    if (!(v > m.mapY)) return m.mapY;
+    return (v < hi) ? v : hi;
+  }
+
+  // A square marker CENTRED on a world position and clamped so the WHOLE rectangle
+  // stays inside the box (clamping the centre alone would leave half a dot hanging
+  // over the border).
+  function marker(ctx, m, wx, wy, d, color) {
+    var x = mapPX(m, wx) - d * 0.5;
+    var y = mapPY(m, wy) - d * 0.5;
+    var maxX = m.mapX + m.mapBox - d;
+    var maxY = m.mapY + m.mapBox - d;
+    if (!(x > m.mapX)) x = m.mapX; else if (x > maxX) x = maxX;
+    if (!(y > m.mapY)) y = m.mapY; else if (y > maxY) y = maxY;
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, d, d);
+  }
+
+  // ---------------------------------------------------------------------------
+  // THE PER-FRAME COMPOSITE: one drawImage, then only the things that move.
+  //
+  // ALLOCATES NOTHING. The entity lists are walked BY INDEX — no filter, no map, no
+  // closure — and every number is a local. The dots read the SAME flags the render
+  // passes read (`alive`/`state` for enemies, `active` for pickups), so a killed
+  // enemy and a collected item leave the map at the same instant they leave the
+  // world rather than through a second, separately-maintained list.
+  // ---------------------------------------------------------------------------
+  function drawMinimap(ctx, m) {
+    // REBUILD ONLY ON A REAL CHANGE — one integer comparison, not a rebuild.
+    var canvas = HUD.minimapCanvas;
+    if (!canvas || canvas.width !== m.mapBox) canvas = HUD.buildMinimap();
+    if (!canvas) return false;
+
+    ctx.drawImage(canvas, m.mapX, m.mapY);
+
+    var box = m.mapBox;
+    var d = Math.round(CONFIG.MINIMAP_DOT_FRAC * box);
+    if (d < 2) d = 2;
+    var pd = Math.round(CONFIG.MINIMAP_PLAYER_DOT_FRAC * box);
+    if (pd < 3) pd = 3;
+
+    // THE EXIT FIRST, and underneath everything else: it never moves, and the map's
+    // whole job is answering "where do I go" as well as "where am I".
+    var exit = (typeof Level !== 'undefined') ? Level.exit : null;
+    if (exit) marker(ctx, m, exit.x, exit.y, d, CONFIG.MINIMAP_EXIT_COLOR);
+
+    if (typeof Pickups !== 'undefined' && Pickups.list) {
+      var pl = Pickups.list;
+      for (var i = 0; i < pl.length; i++) {
+        if (pl[i].active !== true) continue;
+        marker(ctx, m, pl[i].x, pl[i].y, d, CONFIG.MINIMAP_PICKUP_COLOR);
+      }
+    }
+
+    if (typeof Enemies !== 'undefined' && Enemies.list) {
+      var el = Enemies.list;
+      for (var j = 0; j < el.length; j++) {
+        var e = el[j];
+        // A CORPSE IS NOT A THREAT and is deliberately not plotted: the map exists
+        // to show what is still coming for you.
+        if (e.alive !== true || e.state === Enemies.CORPSE) continue;
+        marker(ctx, m, e.x, e.y, d, CONFIG.MINIMAP_ENEMY_COLOR);
+      }
+    }
+
+    // THE PLAYER LAST, so nothing can be drawn over the one marker that matters
+    // most, with a facing tick along the pose's direction vector.
+    if (typeof Player !== 'undefined') {
+      var tick = CONFIG.MINIMAP_FACING_FRAC * box;
+      var cx = mapPX(m, Player.x);
+      var cy = mapPY(m, Player.y);
+      ctx.strokeStyle = CONFIG.MINIMAP_PLAYER_COLOR;
+      ctx.lineWidth = (d > 2) ? 2 : 1;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      // The endpoint goes through the SAME clamp as every other plotted point, so a
+      // player standing in a corner cannot draw a tick out over the status bar.
+      ctx.lineTo(mapPX(m, Player.x + Player.dirX * tick / HUD.minimapScale),
+        mapPY(m, Player.y + Player.dirY * tick / HUD.minimapScale));
+      ctx.stroke();
+      marker(ctx, m, Player.x, Player.y, pd, CONFIG.MINIMAP_PLAYER_COLOR);
+    }
+    return true;
+  }
+
   // ---------------------------------------------------------------------------
   // RENDER THE PLAYING OVERLAY. Called by HUD.render in the playing state.
   //
@@ -436,6 +642,7 @@ var HUD = {
     if (!m) m = HUD.METRICS;
 
     drawDamageFlash(ctx, m);
+    drawMinimap(ctx, m);
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -478,6 +685,8 @@ var HUD = {
     // stay inside it at every window size.
     m.labelY = m.barY + m.barH * 0.30;
     m.valueY = m.barY + m.barH * 0.70;
+
+    updateMapMetrics(m, w, h);
   }
 
   // ===========================================================================
@@ -589,6 +798,13 @@ var HUD = {
     bar.kills = -1;
     bar.total = -1;
     for (var i = 0; i < bar.values.length; i++) bar.values[i] = '';
+
+    // THE MINIMAP PREBUILD HANGS HERE (HUD-05). Game.restart() calls Level.build()
+    // — which reassigns Level.cells and re-derives Level.exit — and then calls this,
+    // so the one moment a picture derived from the map goes stale is the one moment
+    // it is regenerated. Painting 576 cells is a boot/restart cost, never a frame
+    // cost.
+    HUD.buildMinimap();
 
     return HUD;
   };

@@ -424,5 +424,41 @@ var CONFIG = {
   // player is being shot at, and a wash they cannot see through is a wash that
   // gets them killed by the next fireball. Under half is the readability bound.
   DAMAGE_FLASH_ALPHA: 0.42,
-  DAMAGE_FLASH_COLOR: '#c81410'
+  DAMAGE_FLASH_COLOR: '#c81410',
+
+  // --- The corner minimap (HUD-05, 06-CONTEXT D-04) -------------------------
+  // THE WHOLE LEVEL IS SHOWN, not a window around the player. At this box size the
+  // entire 24x24 grid is legible, it is the classic behaviour, and it answers the
+  // question a minimap exists to answer — where is the exit and what have I not
+  // been to yet — which a scrolling window around the player cannot. D-04 records
+  // the fairness trade explicitly (threat T-06-15, accepted).
+  //
+  // MINIMAP_BOX_FRAC: the box's side length as a fraction of the hud canvas
+  // HEIGHT (not the width — a square box on a widescreen viewport must not grow
+  // with the window's aspect). The grid inside it is drawn at an INTEGER cell size
+  // and centred, so cells never land on half pixels.
+  MINIMAP_BOX_FRAC: 0.26,
+  MINIMAP_INSET_FRAC: 0.018,     // gap from the top-left corner of the viewport
+  MINIMAP_BG_COLOR: '#05070c',
+  MINIMAP_BG_ALPHA: 0.62,        // the world stays faintly visible behind it
+  MINIMAP_BORDER_COLOR: '#8d8676',
+  MINIMAP_SOLID_COLOR: '#6b6455',  // walls
+  MINIMAP_FLOOR_COLOR: '#23262f',  // open floor — a DIFFERENT fill, so the drawn
+                                   // grid is the parsed map and not a flat tile
+  // The four marker colours. ALL DISTINCT, and distinct from the two grid colours:
+  // the whole point of the map is telling the four kinds of thing apart at a
+  // glance, and a harness counts dots BY colour, so a collision would silently
+  // make two counts into one.
+  MINIMAP_PLAYER_COLOR: '#e8c14a',
+  MINIMAP_ENEMY_COLOR: '#c8302a',
+  MINIMAP_PICKUP_COLOR: '#4ea3d8',
+  MINIMAP_EXIT_COLOR: '#3fbf5a',
+  // Marker sizes as fractions of the BOX (so they scale with it, not with the
+  // window). The player is drawn slightly larger than the entities: it is the one
+  // marker the player is looking for.
+  MINIMAP_DOT_FRAC: 0.055,
+  MINIMAP_PLAYER_DOT_FRAC: 0.075,
+  // The facing tick's length, as a fraction of the box. Long enough to read as a
+  // direction at a glance, short enough that it cannot be mistaken for a wall.
+  MINIMAP_FACING_FRAC: 0.115
 };

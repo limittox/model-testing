@@ -571,4 +571,358 @@ const flashPeak = (function () {
     'layout is recomputed in place, never reallocated (threat T-06-11)');
 })();
 
+// ===========================================================================
+// ===========================================================================
+// SECTION 2 — THE MINIMAP (HUD-05; 06-CONTEXT D-04).
+// ===========================================================================
+// ===========================================================================
+
+// The box size the CONFIG fraction derives from the live hud canvas height —
+// computed here the same way js/hud.js computes it, from the same constant, so the
+// expectation moves with a retune instead of going stale.
+const expectedBox = () =>
+  Math.max(8, Math.round(CONFIG.MINIMAP_BOX_FRAC * Framebuffer.hudCanvas.height));
+
+// Project a world point into hud-canvas pixels through the SAME scale and origin
+// the grid was painted with — the harness's independent copy of the production
+// projection, so "the dot is where the map says that cell is" is a real claim.
+function projected(wx, wy) {
+  const m = HUD.METRICS;
+  return {
+    x: m.mapX + HUD.minimapGridX + wx * HUD.minimapScale,
+    y: m.mapY + HUD.minimapGridY + wy * HUD.minimapScale
+  };
+}
+
+// The centre of a recorded marker rectangle.
+const rectCentre = (c) => ({ x: c.args[0] + c.args[2] * 0.5, y: c.args[1] + c.args[3] * 0.5 });
+
+const solidCells = () => {
+  let n = 0;
+  for (let my = 0; my < Level.HEIGHT; my++) {
+    for (let mx = 0; mx < Level.WIDTH; mx++) if (Level.isSolid(mx, my)) n += 1;
+  }
+  return n;
+};
+
+const MARKER_COLORS = {
+  player: CONFIG.MINIMAP_PLAYER_COLOR,
+  enemy: CONFIG.MINIMAP_ENEMY_COLOR,
+  pickup: CONFIG.MINIMAP_PICKUP_COLOR,
+  exit: CONFIG.MINIMAP_EXIT_COLOR
+};
+const markerCount = (calls, kind) => fillRectsWith(calls, MARKER_COLORS[kind]).length;
+
+// ---------------------------------------------------------------------------
+// 2a. THE PREBUILD — HUD.reset() paints the grid into an OFFSCREEN canvas of the
+//     derived box size, and touches the hud context not once while doing it.
+// ---------------------------------------------------------------------------
+(function () {
+  freshPlaying();
+  const rec = recordOffscreen(() => HUD.reset());
+  const canvas = HUD.minimapCanvas;
+  const box = expectedBox();
+
+  assert(canvas !== null && canvas.nodeName === 'CANVAS' &&
+    canvas.width === box && canvas.height === box,
+    '2a-i. HUD-05: after HUD.reset the minimap is an OFFSCREEN canvas of the derived ' +
+    'box size (' + (canvas ? canvas.width + 'x' + canvas.height : 'MISSING') + ' === ' +
+    box + 'x' + box + ', i.e. CONFIG.MINIMAP_BOX_FRAC ' + CONFIG.MINIMAP_BOX_FRAC +
+    ' of the ' + Framebuffer.hudCanvas.height + 'px hud canvas)');
+  assert(rec.hud.length === 0,
+    '2a-ii. and building it made ZERO calls on the hud context (' + rec.hud.length +
+    ') — the prebuild is entirely offscreen, so it can never cost a frame or ' +
+    'disturb the overlay');
+  assert(rec.off.filter((c) => c.m === 'fillRect').length > 0,
+    '2a-iii. CONTROL for 2a-ii: the OFFSCREEN recording of the same reset is full of ' +
+    'drawing (' + rec.off.filter((c) => c.m === 'fillRect').length + ' fillRects) — ' +
+    'the zero above is the zero of the right surface, not of a reset that did nothing');
+})();
+
+// ---------------------------------------------------------------------------
+// 2b. ONE BLIT PER FRAME (threat T-06-10) — the static grid is COMPOSITED, never
+//     redrawn cell by cell, and the per-frame cost does not scale with the level.
+// ---------------------------------------------------------------------------
+(function () {
+  const buildsBefore = HUD.minimapBuilds;
+  const calls = recordFrame();
+  const draws = calls.filter((c) => c.m === 'drawImage');
+  const ofMap = draws.filter((c) => c.args[0] === HUD.minimapCanvas);
+  const cells = Level.WIDTH * Level.HEIGHT;
+  const dots = liveEnemies() + activePickups() + 2;   // + the player + the exit
+
+  assert(draws.length === 1 && ofMap.length === 1,
+    '2b-i. HUD-05: one playing frame records EXACTLY ONE drawImage, and its source is ' +
+    'HUD.minimapCanvas (' + draws.length + ' drawImage(s), ' + ofMap.length +
+    ' of the minimap) — the grid is composited, not repainted');
+  assert(calls.length < cells,
+    '2b-ii. THE WHOLE overlay frame made ' + calls.length + ' recorded calls, fewer ' +
+    'than the ' + cells + ' cells of the level — the per-frame cost CANNOT be ' +
+    'scaling with Level.WIDTH x Level.HEIGHT');
+  assert(calls.length <= 40 + dots,
+    '2b-iii. and it is bounded by a small constant plus the dot count (' +
+    calls.length + ' <= 40 + ' + dots + ') — a constant number of bar, crosshair and ' +
+    'composite calls, plus one marker per live entity');
+
+  frames(30);
+  assert(HUD.minimapBuilds === buildsBefore,
+    '2b-iv. across 30 further frames the grid was rebuilt ZERO times (builds still ' +
+    HUD.minimapBuilds + ') — the rebuild test is an integer comparison, not a rebuild');
+})();
+
+// ---------------------------------------------------------------------------
+// 2c. THE LAYOUT IS THE REAL PARSED LEVEL — one filled rectangle per solid cell in
+//     a DIFFERENT colour from the floor, counted against Level.cells, with a
+//     one-extra-wall control that proves the count is measuring the map.
+// ---------------------------------------------------------------------------
+(function () {
+  assert(CONFIG.MINIMAP_SOLID_COLOR !== CONFIG.MINIMAP_FLOOR_COLOR,
+    '2c-0. setup: solid and floor cells are drawn in DIFFERENT colours ("' +
+    CONFIG.MINIMAP_SOLID_COLOR + '" vs "' + CONFIG.MINIMAP_FLOOR_COLOR + '")');
+
+  const before = recordOffscreen(() => HUD.buildMinimap());
+  const solidsDrawn = fillRectsWith(before.off, CONFIG.MINIMAP_SOLID_COLOR).length;
+  const floorsDrawn = fillRectsWith(before.off, CONFIG.MINIMAP_FLOOR_COLOR).length;
+  const solids = solidCells();
+  const cells = Level.WIDTH * Level.HEIGHT;
+
+  assert(solidsDrawn === solids && floorsDrawn === cells - solids,
+    '2c-i. HUD-05: the prebuild painted one rectangle per SOLID cell (' + solidsDrawn +
+    ' === ' + solids + ' derived from Level.cells) and one per FLOOR cell (' +
+    floorsDrawn + ' === ' + (cells - solids) + ') — the grid drawn is the parsed ' +
+    'level, not a placeholder');
+
+  // THE CONTROL: turn one floor cell into a wall, rebuild, and the count must move
+  // by exactly one. A picture that ignores the map would not notice.
+  let target = -1;
+  for (let i = 0; i < Level.cells.length && target < 0; i++) if (Level.cells[i] === 0) target = i;
+  const saved = Level.cells[target];
+  Level.cells[target] = Level.STONE_ID;
+  const after = recordOffscreen(() => HUD.buildMinimap());
+  const solidsAfter = fillRectsWith(after.off, CONFIG.MINIMAP_SOLID_COLOR).length;
+  Level.cells[target] = saved;
+  HUD.buildMinimap();
+
+  assert(target >= 0 && solidsAfter === solidsDrawn + 1,
+    '2c-ii. CONTROL for 2c: making ONE more cell solid (cell ' + target + ' at ' +
+    (target % Level.WIDTH) + ',' + Math.floor(target / Level.WIDTH) + ') moved the ' +
+    'drawn wall count by exactly one (' + solidsDrawn + ' -> ' + solidsAfter + ')');
+  assert(fillRectsWith(recordOffscreen(() => HUD.buildMinimap()).off,
+    CONFIG.MINIMAP_SOLID_COLOR).length === solids,
+    '2c-iii. and restoring the cell restored the count (' + solids + ') — the map ' +
+    'the rest of this section measures is the shipped one');
+})();
+
+// ---------------------------------------------------------------------------
+// 2d. THE PLAYER, WITH A FACING INDICATOR — both plotted through the same
+//     projection as the grid, and both moving when the pose moves.
+// ---------------------------------------------------------------------------
+function poseRecording(x, y, dx, dy) {
+  Player.x = x;
+  Player.y = y;
+  Player.setDir(dx, dy);
+  const calls = recordFrame();
+  const dot = fillRectsWith(calls, CONFIG.MINIMAP_PLAYER_COLOR);
+  const line = calls.filter((c) => c.m === 'lineTo');
+  return { calls, dot: dot.length ? rectCentre(dot[dot.length - 1]) : null,
+    tip: line.length ? { x: line[0].args[0], y: line[0].args[1] } : null };
+}
+
+(function () {
+  freshPlaying();
+  const start = Level.playerStart;
+  const a = poseRecording(start.x, start.y, 1, 0);
+  const want = projected(Player.x, Player.y);
+  assert(a.dot !== null && near(a.dot.x, want.x, 0.6) && near(a.dot.y, want.y, 0.6),
+    '2d-i. HUD-05: the player marker sits at the position Player.x/Player.y maps to ' +
+    'through the grid\'s own scale (drawn ' + (a.dot ? a.dot.x.toFixed(1) + ',' +
+      a.dot.y.toFixed(1) : 'NONE') + ' vs projected ' + want.x.toFixed(1) + ',' +
+    want.y.toFixed(1) + ')');
+  assert(a.tip !== null,
+    '2d-ii. and a facing indicator is drawn from it (tip at ' +
+    (a.tip ? a.tip.x.toFixed(1) + ',' + a.tip.y.toFixed(1) : 'NONE') + ')');
+
+  const b = poseRecording(start.x + 3, start.y + 2, 0, 1);
+  const want2 = projected(Player.x, Player.y);
+  assert(b.dot !== null && near(b.dot.x, want2.x, 0.6) && near(b.dot.y, want2.y, 0.6) &&
+    (Math.abs(b.dot.x - a.dot.x) > 0.5 || Math.abs(b.dot.y - a.dot.y) > 0.5),
+    '2d-iii. CONTROL for 2d: a DIFFERENT pose moved the marker (' + a.dot.x.toFixed(1) +
+    ',' + a.dot.y.toFixed(1) + ' -> ' + b.dot.x.toFixed(1) + ',' + b.dot.y.toFixed(1) +
+    ') and it still lands on the projection of the new position');
+  assert(b.tip !== null &&
+    (Math.abs(b.tip.x - a.tip.x) > 0.5 || Math.abs(b.tip.y - a.tip.y) > 0.5),
+    '2d-iv. and the FACING endpoint moved with the direction vector (' +
+    a.tip.x.toFixed(1) + ',' + a.tip.y.toFixed(1) + ' -> ' + b.tip.x.toFixed(1) + ',' +
+    b.tip.y.toFixed(1) + ') — it tracks Player.dirX/dirY, not merely the position');
+})();
+
+// ---------------------------------------------------------------------------
+// 2e. THE ENTITIES — every live enemy, every uncollected pickup, the player and
+//     the exit, each in its own colour, counted against the live lists.
+// ---------------------------------------------------------------------------
+(function () {
+  freshPlaying();
+  const names = Object.keys(MARKER_COLORS);
+  const colors = names.map((n) => MARKER_COLORS[n]);
+  assert(new Set(colors).size === names.length &&
+    colors.indexOf(CONFIG.MINIMAP_SOLID_COLOR) < 0 &&
+    colors.indexOf(CONFIG.MINIMAP_FLOOR_COLOR) < 0,
+    '2e-0. setup: the four marker colours are all DISTINCT from each other and from ' +
+    'the two grid colours (' + colors.join(', ') + ') — otherwise two counts would ' +
+    'silently be one');
+
+  const calls = recordFrame();
+  const enemies = markerCount(calls, 'enemy');
+  const pickups = markerCount(calls, 'pickup');
+  const player = markerCount(calls, 'player');
+  const exit = markerCount(calls, 'exit');
+
+  assert(enemies === liveEnemies() && enemies > 0,
+    '2e-i. HUD-05: one enemy dot per LIVE non-corpse enemy (' + enemies + ' === ' +
+    liveEnemies() + ', derived from Enemies.list)');
+  assert(pickups === activePickups() && pickups > 0,
+    '2e-ii. one pickup dot per ACTIVE pickup (' + pickups + ' === ' + activePickups() +
+    ', derived from Pickups.list)');
+  assert(player === 1 && exit === 1 && Level.exit !== null,
+    '2e-iii. exactly one player marker and exactly one exit marker (' + player + ', ' +
+    exit + ')');
+  assert(enemies + pickups + player + exit ===
+    liveEnemies() + activePickups() + 2,
+    '2e-iv. and the total dot count is exactly the live world plus the player and ' +
+    'the exit (' + (enemies + pickups + player + exit) + ') — nothing is plotted ' +
+    'that is not in a list, and nothing in a list is missing');
+})();
+
+// ---------------------------------------------------------------------------
+// 2f. THE DOTS TRACK THE WORLD — a killed enemy and a collected item each leave
+//     the map, by the SAME flags the render passes read.
+// ---------------------------------------------------------------------------
+(function () {
+  freshPlaying();
+  const before = recordFrame();
+  const enemiesBefore = markerCount(before, 'enemy');
+
+  const victim = nearestEnemy();
+  Enemies.hurt(victim, CONFIG.ENEMY_HEALTH * 100);
+  // Let the death animation reach the terminal corpse state — the dot must go when
+  // the enemy stops being a threat, and `alive` is cleared on the lethal hit.
+  frames(60);
+  const afterKill = recordFrame();
+
+  assert(markerCount(afterKill, 'enemy') === enemiesBefore - 1 &&
+    markerCount(afterKill, 'enemy') === liveEnemies(),
+    '2f-i. HUD-05: killing ONE enemy removed exactly ONE enemy dot (' + enemiesBefore +
+    ' -> ' + markerCount(afterKill, 'enemy') + ', still === the live count ' +
+    liveEnemies() + ') — the map reads the same flags the sprite pass reads');
+
+  const pickupsBefore = markerCount(afterKill, 'pickup');
+  const activeBefore = activePickups();
+  let item = null;
+  for (const e of Pickups.list) if (e.active === true) { item = e; break; }
+  Player.x = item.x;
+  Player.y = item.y;
+  const afterTake = recordFrame();
+
+  assert(activePickups() === activeBefore - 1 && item.active === false,
+    '2f-0. setup: walking onto the item collected exactly one pickup through the real ' +
+    'proximity path (' + activeBefore + ' -> ' + activePickups() + ' active)');
+  assert(markerCount(afterTake, 'pickup') === pickupsBefore - 1 &&
+    markerCount(afterTake, 'pickup') === activePickups(),
+    '2f-ii. CONTROL pair for 2f: collecting ONE pickup removed exactly ONE pickup dot ' +
+    '(' + pickupsBefore + ' -> ' + markerCount(afterTake, 'pickup') + ', still === the ' +
+    'active count ' + activePickups() + ')');
+})();
+
+// ---------------------------------------------------------------------------
+// 2g. THE EXIT IS ON THE MAP — in its own colour, at the position Level.exit maps
+//     to. The map answers WHERE TO GO, not only where you are.
+// ---------------------------------------------------------------------------
+(function () {
+  freshPlaying();
+  const calls = recordFrame();
+  const marks = fillRectsWith(calls, CONFIG.MINIMAP_EXIT_COLOR);
+  const want = projected(Level.exit.x, Level.exit.y);
+  const centre = marks.length ? rectCentre(marks[0]) : null;
+  assert(marks.length === 1 && near(centre.x, want.x, 0.6) && near(centre.y, want.y, 0.6),
+    '2g. HUD-05: the exit at cell (' + Level.exit.mx + ',' + Level.exit.my + ') is ' +
+    'marked in its own colour at the position it projects to (drawn ' +
+    (centre ? centre.x.toFixed(1) + ',' + centre.y.toFixed(1) : 'NONE') + ' vs ' +
+    want.x.toFixed(1) + ',' + want.y.toFixed(1) + ')');
+})();
+
+// ---------------------------------------------------------------------------
+// 2h. BOUNDS (threat T-06-12) — with the player driven to (and past) all four
+//     corners of the level, NOTHING is plotted outside the minimap box.
+// ---------------------------------------------------------------------------
+(function () {
+  freshPlaying();
+  const corners = [[0, 0], [Level.WIDTH, 0], [0, Level.HEIGHT],
+    [Level.WIDTH, Level.HEIGHT], [-5, -5], [Level.WIDTH + 5, Level.HEIGHT + 5]];
+  let worst = null;
+  let checked = 0;
+
+  for (const [cx, cy] of corners) {
+    Player.x = cx;
+    Player.y = cy;
+    const calls = recordFrame();
+    const m = HUD.METRICS;
+    const x0 = m.mapX, y0 = m.mapY, x1 = m.mapX + m.mapBox, y1 = m.mapY + m.mapBox;
+    for (const c of calls) {
+      let pts = null;
+      if (c.m === 'fillRect' && Object.keys(MARKER_COLORS)
+        .some((k) => MARKER_COLORS[k] === c.fillStyle)) {
+        pts = [[c.args[0], c.args[1]], [c.args[0] + c.args[2], c.args[1] + c.args[3]]];
+      } else if (c.m === 'moveTo' || c.m === 'lineTo') {
+        pts = [[c.args[0], c.args[1]]];
+      }
+      if (!pts) continue;
+      for (const [px, py] of pts) {
+        checked += 1;
+        if (!(px >= x0 && px <= x1 && py >= y0 && py <= y1)) {
+          worst = 'pose (' + cx + ',' + cy + ') plotted ' + px + ',' + py +
+            ' outside [' + x0 + '..' + x1 + ', ' + y0 + '..' + y1 + ']';
+        }
+      }
+    }
+  }
+  assert(checked > 0 && worst === null,
+    '2h. HUD-05: across all four level corners and two poses OUTSIDE the grid ' +
+    'entirely, every one of the ' + checked + ' plotted minimap coordinates lies ' +
+    'inside the box — every point goes through the one clamped projection' +
+    (worst ? ' [OFFENDER: ' + worst + ']' : ''));
+})();
+
+// ---------------------------------------------------------------------------
+// 2i. A RESTART REBUILDS THE MAP — and the dot counts come back to the full
+//     populated level.
+// ---------------------------------------------------------------------------
+(function () {
+  const before = HUD.minimapCanvas;
+  const w = before.width, hgt = before.height;
+  const builds = HUD.minimapBuilds;
+
+  Game.restart();
+  releaseAll();
+  const after = HUD.minimapCanvas;
+  const calls = recordFrame();
+  const ofMap = calls.filter((c) => c.m === 'drawImage' && c.args[0] === after);
+
+  assert(after !== before && HUD.minimapBuilds === builds + 1 &&
+    after.width === w && after.height === hgt,
+    '2i-i. Game.restart() REBUILT the minimap through HUD.reset (a new canvas, builds ' +
+    builds + ' -> ' + HUD.minimapBuilds + ') at the same derived size (' + after.width +
+    'x' + after.height + ') — a reparsed level cannot leave a stale picture up');
+  assert(ofMap.length === 1 && calls.filter((c) => c.m === 'drawImage').length === 1,
+    '2i-ii. and the frame after the restart still composites it with exactly ONE ' +
+    'drawImage');
+  assert(markerCount(calls, 'enemy') === liveEnemies() &&
+    markerCount(calls, 'pickup') === activePickups() &&
+    markerCount(calls, 'enemy') === Enemies.list.length &&
+    markerCount(calls, 'pickup') === Pickups.list.length,
+    '2i-iii. and the dot counts are back to the FULL populated level (' +
+    markerCount(calls, 'enemy') + ' enemies of ' + Enemies.list.length + ', ' +
+    markerCount(calls, 'pickup') + ' pickups of ' + Pickups.list.length + ') — the ' +
+    'restart resurrected the world and the map with it');
+})();
+
 finish('ALL_HUD_CONTRACTS_PASS');
