@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 06
 current_phase_name: hud-audio-game-state-machine
 status: executing
-stopped_at: Completed 06-01-PLAN.md
-last_updated: "2026-07-25T06:45:14.997Z"
+stopped_at: Completed 06-02-PLAN.md
+last_updated: "2026-07-25T07:15:03.797Z"
 last_activity: 2026-07-25
 last_activity_desc: Phase 06 execution started
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 17
-  completed_plans: 15
+  completed_plans: 16
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-07-23)
 ## Current Position
 
 Phase: 06 (hud-audio-game-state-machine) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-25 — Phase 06 execution started
 
-Progress: [█████████░] 88%
+Progress: [█████████░] 94%
 
 ## Performance Metrics
 
@@ -74,6 +74,7 @@ Progress: [█████████░] 88%
 | Phase 05 P03 | ~45 min | 3 tasks | 6 files |
 | Phase 05 P04 | ~50 min | 3 tasks | 15 files |
 | Phase 06 P01 | 62 | 3 tasks | 18 files |
+| Phase 06 P02 | 48min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -125,6 +126,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 6: the game-state step gate lives in Game.frame, never in Game.step — Game.step stays the un-gated simulation primitive every Phase 1-5 harness drives directly
 - [Phase ?]: Phase 6 D-02 resolved: Game.renderMessage stays the SOLE message renderer in Raycaster.overlayPasses; no HUD-side renderer, and verify-state section 4 arms the double-draw gate for 06-02
 - [Phase ?]: Sound.ctx deferred to 06-03: verify-pickups 0d asserts no context field exists on Sound, and a Phase 1-5 assertion may only be fixed on the production side
+- [Phase ?]: 06-02: the minimap grid is prebuilt once into an offscreen canvas and composited with a single drawImage — 40 overlay calls per frame against 576 cells
+- [Phase ?]: 06-02: the ammo readout resolves its Combat.ammo field through Weapons.TABLE, so the bar and the trigger cannot disagree
+- [Phase ?]: 06-02: D-02 held — no message renderer in js/hud.js; the two new event messages ride Game.renderMessage and the 06-01 double-draw gate was extended, not replaced
 
 ### Pending Todos
 
@@ -149,6 +153,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-25T06:45:14.976Z
-Stopped at: Completed 06-01-PLAN.md
+Last session: 2026-07-25T07:14:51.942Z
+Stopped at: Completed 06-02-PLAN.md
 Resume file: None

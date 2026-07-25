@@ -63,12 +63,12 @@ All code lives under `Doom/Claude Opus 4.8/GSD/`.
 
 ### HUD
 
-- [ ] **HUD-01**: HUD displays current health, armor, and ammo
-- [ ] **HUD-02**: HUD displays the current weapon and the kill count
-- [ ] **HUD-03**: A crosshair is drawn at screen center
-- [ ] **HUD-04**: On-screen messages appear for pickups/events and fade out
-- [ ] **HUD-05**: A minimap shows the level layout, the player, and nearby entities
-- [ ] **HUD-06**: A red damage flash overlays the screen when the player takes damage
+- [x] **HUD-01**: HUD displays current health, armor, and ammo
+- [x] **HUD-02**: HUD displays the current weapon and the kill count
+- [x] **HUD-03**: A crosshair is drawn at screen center
+- [x] **HUD-04**: On-screen messages appear for pickups/events and fade out
+- [x] **HUD-05**: A minimap shows the level layout, the player, and nearby entities
+- [x] **HUD-06**: A red damage flash overlays the screen when the player takes damage
 
 ### Level & Progression
 
@@ -153,12 +153,12 @@ Which phases cover which requirements. Populated during roadmap creation.
 | PICK-04 | Phase 5 | Complete |
 | PICK-05 | Phase 5 | Complete |
 | LVL-02 | Phase 5 | Complete |
-| HUD-01 | Phase 6 | Pending |
-| HUD-02 | Phase 6 | Pending |
-| HUD-03 | Phase 6 | Pending |
-| HUD-04 | Phase 6 | Pending |
-| HUD-05 | Phase 6 | Pending |
-| HUD-06 | Phase 6 | Pending |
+| HUD-01 | Phase 6 | Complete |
+| HUD-02 | Phase 6 | Complete |
+| HUD-03 | Phase 6 | Complete |
+| HUD-04 | Phase 6 | Complete |
+| HUD-05 | Phase 6 | Complete |
+| HUD-06 | Phase 6 | Complete |
 | AUD-01 | Phase 6 | Pending |
 | AUD-02 | Phase 6 | Pending |
 | AUD-03 | Phase 6 | Pending |

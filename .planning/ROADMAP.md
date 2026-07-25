@@ -137,12 +137,12 @@ Plans:
   3. A title/start screen shows the controls and, on a single click, starts play while unlocking pointer lock and resuming the AudioContext (audio is never blocked by autoplay policy).
   4. Reaching the visibly-marked, reachable exit triggers a victory screen with stats (kills, time), and health reaching zero triggers a death screen with a restart option.
 
-**Plans**: 1/3 plans executed
+**Plans**: 2/3 plans executed
 
 Plans:
 
 - [x] 06-01-PLAN.md — TRACER: game-state machine (title/victory/death), the single start gesture (play + pointer lock + audio unlock), exit-reached victory with stats, health-zero death, and restart
-- [ ] 06-02-PLAN.md — HUD on the #hud overlay: health/armor/ammo/weapon/kills status bar, centre crosshair, minimap, red damage flash, and the single-renderer event messages
+- [x] 06-02-PLAN.md — HUD on the #hud overlay: health/armor/ammo/weapon/kills status bar, centre crosshair, minimap, red damage flash, and the single-renderer event messages
 - [ ] 06-03-PLAN.md — Web Audio SFX synthesis: gesture-scoped AudioContext, master gain into compressor, six distinct recipes, and the five missing Sound.play call sites
 
 **UI hint**: yes
@@ -159,4 +159,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 3. Core Renderer — Walls, Floors & Ceilings | 3/3 | In Progress|  |
 | 4. Sprite Rendering & Entities | 2/2 | In Progress|  |
 | 5. Enemy AI, Weapons & Pickups | 4/4 | In Progress|  |
-| 6. HUD, Audio & Game-State Machine | 1/3 | In Progress|  |
+| 6. HUD, Audio & Game-State Machine | 2/3 | In Progress|  |
