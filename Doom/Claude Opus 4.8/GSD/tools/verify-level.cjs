@@ -376,6 +376,62 @@ assert(sealed.length === 0 && seen.size === floorCells,
 assert(Level.spawns.every((s) => seen.has(idx(s.mx, s.my))),
   '10b. every spawn cell is reachable from the player start');
 
+// ---------------------------------------------------------------------------
+// 10c / 10d — LVL-03: THE EXIT IS REACHABLE, ASSERTED BY NAME.
+//
+// 10b already covers it INCIDENTALLY (the exit is a spawn), but "the win
+// condition is reachable" is a requirement in its own right and deserves to fail
+// with its own name rather than inside a set-wide every(). 10d is the
+// falsifiability control: the SAME helper, run against a map whose alcove mouth
+// has been deliberately sealed, must report the exit UNREACHABLE. A reachability
+// test that cannot report failure proves nothing.
+// ---------------------------------------------------------------------------
+function reachableFrom(sx, sy) {
+  const found = new Set();
+  if (Level.isSolid(sx, sy)) return found;
+  const st = [idx(sx, sy)];
+  found.add(st[0]);
+  while (st.length) {
+    const c = st.pop();
+    const cx = c % W;
+    const cy = (c - cx) / W;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+      if (Level.isSolid(nx, ny)) continue;
+      const ni = idx(nx, ny);
+      if (!found.has(ni)) { found.add(ni); st.push(ni); }
+    }
+  }
+  return found;
+}
+
+const ex = Level.exit;
+assert(ex !== null && Level.cellAt(ex.mx, ex.my) === 0 &&
+  reachableFrom(ps.mx, ps.my).has(idx(ex.mx, ex.my)) && seen.has(idx(ex.mx, ex.my)),
+  '10c. LVL-03: Level.exit' + (ex ? ' (' + ex.mx + ',' + ex.my + ')' : ' [MISSING]') +
+  ' is non-null, its cell is FLOOR, and it is a member of the flood-filled reachable set — ' +
+  'the level can actually be won on foot from the player start');
+
+// The control. The exit alcove has exactly one floor neighbour; sealing it must
+// cut the exit off from the flood fill. Restored immediately afterwards.
+(function () {
+  const mouths = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+    .map(([dx, dy]) => [ex.mx + dx, ex.my + dy])
+    .filter(([mx, my]) => Level.cellAt(mx, my) === 0);
+  const saved = mouths.map(([mx, my]) => Level.cells[idx(mx, my)]);
+  for (const [mx, my] of mouths) Level.cells[idx(mx, my)] = Level.STONE_ID;
+  const sealedSet = reachableFrom(ps.mx, ps.my);
+  const nowUnreachable = !sealedSet.has(idx(ex.mx, ex.my));
+  mouths.forEach(([mx, my], i) => { Level.cells[idx(mx, my)] = saved[i]; });
+  const restored = reachableFrom(ps.mx, ps.my).has(idx(ex.mx, ex.my));
+  assert(mouths.length > 0 && nowUnreachable && restored,
+    '10d. CONTROL for 10c: sealing the alcove\'s ' + mouths.length + ' floor neighbour(s) makes ' +
+    'the SAME helper report the exit UNREACHABLE, and unsealing restores it — the reachability ' +
+    'test can report failure, so 10c is not vacuous');
+})();
+
 // ===========================================================================
 // 11. Line of sight
 // ===========================================================================

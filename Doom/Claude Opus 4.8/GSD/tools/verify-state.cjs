@@ -880,6 +880,193 @@ function assertCleanWorld(via) {
 })();
 
 // ===========================================================================
+// ===========================================================================
+// SECTION 3 — THE EXIT IS VISIBLY MARKED (LVL-03).
+//
+// verify-level.cjs owns the REACHABILITY half by name (10c) with a sealed-map
+// control (10d). This section owns the VISIBILITY half: the exit has to read as
+// an exit rather than as another stretch of wall, and it has to do so through the
+// LEVEL'S OWN MATERIAL — there is deliberately no exit billboard.
+// ===========================================================================
+// ===========================================================================
+
+// The wall ID of the exit material, DERIVED from Level.WALL_TEXTURES rather than
+// hardcoded as 5 — so renumbering the table moves this with it.
+const EXIT_WALL_ID = Level.WALL_TEXTURES.indexOf('exit');
+
+// ===========================================================================
+// 3a. THE ALCOVE AROUND THE EXIT IS FACED WITH THE EXIT MATERIAL.
+// ===========================================================================
+(function () {
+  const e = Level.exit;
+  const neighbours = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+    .map(([dx, dy]) => ({ mx: e.mx + dx, my: e.my + dy }))
+    .map((c) => ({ c: c, id: Level.cellAt(c.mx, c.my) }));
+  const faced = neighbours.filter((n) => n.id === EXIT_WALL_ID);
+
+  assert(EXIT_WALL_ID > 0 && Level.WALL_TEXTURES[EXIT_WALL_ID] === 'exit',
+    '3a-i. the exit wall ID is derived from Level.WALL_TEXTURES (id ' + EXIT_WALL_ID +
+    ' -> "exit"), not hardcoded');
+  assert(faced.length >= 1,
+    '3a-ii. at least one four-neighbour of the exit cell is a SOLID cell carrying the exit ' +
+    'material (' + faced.length + ' of 4: ' +
+    faced.map((n) => '(' + n.c.mx + ',' + n.c.my + ')').join(' ') + ')');
+  assert(Textures.map && Textures.map.exit && Textures.map.exit.buf32.length > 0,
+    '3a-iii. Textures.map holds a built "exit" texture for that ID to resolve to');
+})();
+
+// ===========================================================================
+// 3b + 3c. THE PIXEL PROOF, AND ITS CONTROL.
+//
+// The exit material is the only EMISSIVE GREEN wall in the atlas, so a frame
+// looking at it must contain a substantial count of strongly-green pixels — and
+// a frame looking at plain stone from THE SAME DISTANCE must not. Both numbers
+// are reported in the labels so the margin is visible rather than asserted blind.
+//
+// SCENARIO ISOLATION: the sprite pass and the overlay passes are lifted for the
+// duration, so what is measured is the WALL MATERIAL and nothing else (an enemy
+// billboard or the weapon viewmodel in frame would contaminate the count). Both
+// seams are restored immediately, and section 4 re-asserts the overlay array.
+// ===========================================================================
+const greenCounts = (function () {
+  const savedSprite = Raycaster.spritePass;
+  const savedOverlays = Raycaster.overlayPasses.slice();
+  Raycaster.spritePass = null;
+  Raycaster.overlayPasses.length = 0;
+
+  // Strongly green: the green channel beats BOTH other channels by a healthy
+  // margin. Distance shading scales all three together, so the ratio survives it.
+  const MARGIN = 30;
+  function greenPixels() {
+    const buf = Framebuffer.buf32;
+    let n = 0;
+    for (let i = 0; i < buf.length; i++) {
+      const p = buf[i];
+      const r = p & 0xff;
+      const g = (p >>> 8) & 0xff;
+      const b = (p >>> 16) & 0xff;
+      if (g > r + MARGIN && g > b + MARGIN) n += 1;
+    }
+    return n;
+  }
+
+  // THE EXIT POSE: stand in the alcove approach, one cell west of the exit centre,
+  // facing the exit-faced wall. Wall face at exit.mx + 1, so the eye is 1.5 cells
+  // from it.
+  const e = Level.exit;
+  placeAt(e.x - 1, e.y, 1, 0);
+  Raycaster.render();
+  const exitGreen = greenPixels();
+
+  // THE CONTROL POSE: the SAME 1.5 cells from a plain wall face, derived from
+  // Level.LANDMARKS.wallFaceEast so it is never a hunted-for coordinate.
+  const wf = Level.LANDMARKS.wallFaceEast;
+  placeAt(wf.wf - 1.5, wf.y, 1, 0);
+  Raycaster.render();
+  const stoneGreen = greenPixels();
+  const controlWallName = Level.textureNameFor(Level.cellAt(wf.wf, wf.my));
+
+  Raycaster.spritePass = savedSprite;
+  for (const p of savedOverlays) Raycaster.overlayPasses.push(p);
+
+  const total = Framebuffer.width * Framebuffer.height;
+  assert(controlWallName !== 'exit',
+    '3c-0. setup: the control wall at (' + wf.wf + ',' + wf.my + ') is "' + controlWallName +
+    '", NOT the exit material — otherwise the control would be a second exit');
+  assert(exitGreen > total * 0.05,
+    '3b. THE PIXEL PROOF: facing the exit wall from 1.5 cells, ' + exitGreen + ' of ' + total +
+    ' framebuffer pixels (' + (100 * exitGreen / total).toFixed(1) + '%) are strongly green — ' +
+    'the exit is VISIBLY MARKED by the emissive material, not inferred from the map source');
+  assert(stoneGreen * 10 < exitGreen,
+    '3c. CONTROL for 3b: the SAME measurement 1.5 cells from a plain "' + controlWallName +
+    '" wall yields ' + stoneGreen + ' green pixels vs the exit\'s ' + exitGreen + ' — a margin ' +
+    'of ' + (stoneGreen > 0 ? (exitGreen / stoneGreen).toFixed(0) + 'x' : 'infinity') +
+    ', so the count is measuring the exit material and not the renderer');
+
+  return { exitGreen, stoneGreen };
+})();
+
+// ===========================================================================
+// 3d. THE EXIT PRODUCES NO BILLBOARD — it is marked by the level's own material.
+// ===========================================================================
+(function () {
+  const exitSpawns = Level.spawns.filter((sp) => sp.type === 'exit').length;
+  assert(exitSpawns === 1 &&
+    !Object.prototype.hasOwnProperty.call(Entities.SPRITE_FOR, 'exit'),
+    '3d-i. Entities.SPRITE_FOR has NO "exit" descriptor, so the ' + exitSpawns +
+    ' exit marker emits no sprite');
+  assert(Entities.list.length === spawnBillboards() + CONFIG.PROJ_POOL,
+    '3d-ii. Entities.list.length is still the spawn-derived billboard count plus ' +
+    'CONFIG.PROJ_POOL exactly (' + Entities.list.length + ' === ' + spawnBillboards() + ' + ' +
+    CONFIG.PROJ_POOL + ') — nothing was added for the exit');
+  assert(!Entities.list.some((e) => e.kind === 'exit' || e.itemType === 'exit' ||
+    (typeof e.sprite === 'string' && e.sprite.indexOf('exit') >= 0)),
+    '3d-iii. no entity in the list carries an exit kind, itemType or sprite name');
+})();
+
+// ===========================================================================
+// ===========================================================================
+// SECTION 4 — THE SINGLE MESSAGE RENDERER (06-CONTEXT D-02, RESOLVED).
+//
+// THE RESOLUTION THIS PHASE LOCKS: Game.renderMessage stays registered in
+// Raycaster.overlayPasses as the ONE AND ONLY renderer of the event line, and no
+// second renderer is added anywhere — not in js/hud.js, not in 06-02. That is the
+// option that leaves all 571 Phase 1-5 assertions intact (verify-pickups 3-0-vi
+// asserts the exact two-entry overlay array with the message pass at index 1, and
+// its whole section 3 proves the framebuffer draw).
+//
+// 06-02 MUST EXTEND THIS SECTION, NEVER REPLACE IT. If 06-02 moves the message to
+// the HUD it has to move the framebuffer proof with it — 4c is the gate that makes
+// a silent double-draw impossible to ship.
+// ===========================================================================
+// ===========================================================================
+(function () {
+  freshPlaying();
+
+  // 4a — a STRICT COUNT over the array, not an indexOf. Two registrations of the
+  // same function would draw the line twice and indexOf would never notice.
+  let count = 0;
+  for (const p of Raycaster.overlayPasses) if (p === Game.renderMessage) count += 1;
+  assert(count === 1,
+    '4a. Raycaster.overlayPasses contains Game.renderMessage EXACTLY ONCE (counted, not ' +
+    'indexOf) across ' + Raycaster.overlayPasses.length + ' passes');
+
+  // 4b — the ONE renderer really draws. The same frame, rendered with the message
+  // ring live and then with it cleared, must differ.
+  const TEXT = 'PICKED UP A MEDIKIT';
+  placeAt(Level.LANDMARKS.openCell.x, Level.LANDMARKS.openCell.y, 1, 0);
+  Game.message(TEXT);
+  assert(Game.activeMessage() !== null && Game.activeMessage().text === TEXT,
+    '4b-0. setup: "' + TEXT + '" is the active message');
+
+  Raycaster.render();
+  const withMsg = Framebuffer.buf32.slice();
+  Game.clearMessages();
+  Raycaster.render();
+  const withoutMsg = Framebuffer.buf32.slice();
+
+  let differing = 0;
+  for (let i = 0; i < withMsg.length; i++) if (withMsg[i] !== withoutMsg[i]) differing += 1;
+  assert(differing > 0 && Game.messageBox.w > 0,
+    '4b. a frame rendered with the message active differs from the same frame with the ring ' +
+    'cleared in ' + differing + ' framebuffer pixels (box ' + Game.messageBox.w + 'x' +
+    Game.messageBox.h + ') — the one renderer is really drawing');
+
+  // 4c — THE DOUBLE-DRAW GATE. With the message active again, a real recorded
+  // frame must show ZERO hud text calls carrying that text. 4b above is its
+  // control: the text IS drawn, once, in the framebuffer.
+  Game.message(TEXT);
+  const calls = recordFrame();
+  const offenders = textsOf(calls).filter((t) => t.indexOf(TEXT) >= 0);
+  assert(Game.activeMessage() !== null,
+    '4c-0. setup: the message is active again on the recorded frame');
+  assert(offenders.length === 0,
+    '4c. THE DOUBLE-DRAW GATE: the recorded frame made ZERO hud fillText/strokeText calls ' +
+    'containing the message text (' + offenders.length + ' offenders) — with 4b as the control ' +
+    'that the text IS drawn, exactly once, in exactly one place');
+})();
+
+// ===========================================================================
 // 1g (second half). Re-assert at the END of the run: nothing built a context.
 // ===========================================================================
 noAudioContext('1g-ii. at the END of the run (after clicks, restarts and hundreds of frames): ' +
