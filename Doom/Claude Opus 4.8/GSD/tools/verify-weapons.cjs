@@ -446,4 +446,266 @@ function scenario(px, py, dx, dy) {
     (b1 - Combat.ammo.bullets) + ') and damages the enemy (' + (h1 - e.health) + ')');
 })();
 
+// ===========================================================================
+// 2. THE SHOTGUN: MULTI-PELLET SPREAD, PER-WEAPON AMMO, AND WEAPON SWITCHING.
+// ===========================================================================
+
+// --- 2a / 2b: the shotgun is GATED on the grant -------------------------------
+(function () {
+  scenario(2.5, 4.5, 1, 0);
+  Combat.hasShotgun = false;
+  Combat.ammo.shells = 8;
+
+  setIntent({ weaponSlot: 2, fire: true });
+  simFrames(5);
+  setIntent(null);
+
+  assert(Combat.weapon === Combat.PISTOL,
+    '2a. with hasShotgun FALSE a slot-2 select leaves Combat.weapon at the pistol (D-10)');
+  assert(Combat.ammo.shells === 8,
+    '2a-ii. and no shell was spent — the refused weapon never got to fire');
+
+  // --- 2b CONTROL: grant it, replay the IDENTICAL intent --------------------
+  scenario(2.5, 4.5, 1, 0);
+  Combat.hasShotgun = true;
+  Combat.ammo.shells = 8;
+  setIntent({ weaponSlot: 2 });
+  simFrames(1);
+  setIntent(null);
+
+  assert(Combat.weapon === Combat.SHOTGUN,
+    '2b. CONTROL: after Combat.hasShotgun becomes true the IDENTICAL slot-2 intent ' +
+    'selects the shotgun');
+  assert(Combat.selectWeapon('rocketLauncher') === false && Combat.weapon === Combat.SHOTGUN,
+    '2b-ii. Combat.selectWeapon refuses an UNKNOWN weapon name and leaves the selection alone');
+
+  // The real Input path DRAINS the pending slot, so one key press selects once.
+  Game.input = Input;
+  Input.reset();
+  h.dispatch('window', 'keydown', { code: 'Digit2' });
+  const firstRead = Input.readIntent().weaponSlot;
+  const secondRead = Input.readIntent().weaponSlot;
+  Game.input = scriptedInput;
+  Input.reset();
+  assert(firstRead === 2 && secondRead === 0,
+    '2b-iii. a real Digit2 keydown yields weaponSlot 2 on the FIRST read and 0 on the next ' +
+    '— the slot is drained exactly like the mouse delta, so a held key selects once');
+})();
+
+// --- 2c: each weapon spends its OWN ammo type --------------------------------
+(function () {
+  scenario(2.5, 4.5, 1, 0);
+  Combat.hasShotgun = true;
+  Combat.weapon = Combat.SHOTGUN;
+  Combat.ammo.shells = 8;
+  const b0 = Combat.ammo.bullets, sh0 = Combat.ammo.shells;
+
+  Weapons.fire();
+
+  assert(sh0 - Combat.ammo.shells === 1 && Combat.ammo.bullets === b0,
+    '2c. one shotgun shot spends exactly 1 SHELL and leaves bullets untouched (' + b0 +
+    ') — each weapon spends only its own Combat.ammo field');
+})();
+
+// --- 2d: pellet COUNT is the weapon's, not a constant ------------------------
+(function () {
+  scenario(2.5, 4.5, 1, 0);
+  Combat.hasShotgun = true;
+  Combat.ammo.shells = 8;
+
+  Combat.weapon = Combat.SHOTGUN;
+  Weapons.fire();
+  const shotgunRays = Weapons.lastRayCount;
+
+  Combat.weapon = Combat.PISTOL;
+  Weapons.fire();
+  const pistolRays = Weapons.lastRayCount;
+
+  assert(shotgunRays === CONFIG.SHOTGUN_PELLETS,
+    '2d. one shotgun shot casts CONFIG.SHOTGUN_PELLETS rays (' + CONFIG.SHOTGUN_PELLETS +
+    ', got ' + shotgunRays + ')');
+  assert(pistolRays === 1,
+    '2d-ii. one pistol shot casts EXACTLY one ray (got ' + pistolRays + ') — WEAP-03');
+})();
+
+// --- 2e: the spread is a real cone around the aim direction ------------------
+(function () {
+  scenario(2.5, 4.5, 1, 0);
+  Combat.hasShotgun = true;
+  Combat.weapon = Combat.SHOTGUN;
+  Combat.ammo.shells = 8;
+
+  const aim = Math.atan2(Player.dirY, Player.dirX);
+  Weapons.fire();
+
+  const n = Weapons.lastRayCount;
+  const offsets = [];
+  for (let i = 0; i < n; i++) offsets.push(Weapons.rayAngles[i] - aim);
+
+  const allEqual = offsets.every((o) => o === offsets[0]);
+  const distinct = new Set(offsets).size;
+  const worst = Math.max(...offsets.map(Math.abs));
+
+  assert(!allEqual && distinct === n,
+    '2e. the ' + n + ' pellet angles are NOT all equal (' + distinct + ' distinct offsets) ' +
+    '— the cone is real, not one ray repeated');
+  assert(worst <= CONFIG.SHOTGUN_SPREAD + 1e-12,
+    '2e-ii. every pellet lies within CONFIG.SHOTGUN_SPREAD (' + CONFIG.SHOTGUN_SPREAD +
+    ') of the aim direction — worst offset ' + worst.toFixed(5) + ' rad');
+  assert(worst > 0,
+    '2e-iii. CONTROL (non-vacuity): the worst offset is non-zero, so the spread was applied');
+})();
+
+// --- 2f: a point-blank blast lands MULTIPLE pellets --------------------------
+(function () {
+  scenario(2.5, 4.5, 1, 0);
+  Combat.hasShotgun = true;
+  Combat.ammo.shells = 8;
+  const e = Enemies.add(3.5, 4.5);             // one cell — every pellet inside the body
+  // Raise the health above a full blast so the kill does not TRUNCATE the total:
+  // Enemies.hurt's re-entry guard correctly stops damaging a dead enemy, which
+  // would clamp 49 damage to the 40 it started with and hide the multiple.
+  e.health = 500;
+
+  Combat.weapon = Combat.SHOTGUN;
+  const h0 = e.health;
+  Weapons.fire();
+  const shotgunDamage = h0 - e.health;
+
+  Combat.weapon = Combat.PISTOL;
+  const h1 = e.health;
+  Weapons.fire();
+  const pistolDamage = h1 - e.health;
+
+  assert(shotgunDamage > pistolDamage,
+    '2f. a point-blank shotgun blast removes MORE health (' + shotgunDamage + ') than one ' +
+    'pistol shot (' + pistolDamage + ') — multiple pellets connected');
+  assert(shotgunDamage % CONFIG.SHOTGUN_DAMAGE === 0 && shotgunDamage > 0,
+    '2f-ii. the health removed is an exact multiple of CONFIG.SHOTGUN_DAMAGE (' +
+    shotgunDamage + ' = ' + (shotgunDamage / CONFIG.SHOTGUN_DAMAGE) + ' x ' +
+    CONFIG.SHOTGUN_DAMAGE + ') — every pellet applied its own damage through Enemies.hurt');
+  assert(shotgunDamage === CONFIG.SHOTGUN_PELLETS * CONFIG.SHOTGUN_DAMAGE,
+    '2f-iii. at one cell EVERY pellet is inside HITSCAN_TARGET_RADIUS, so the blast is the ' +
+    'full CONFIG.SHOTGUN_PELLETS * CONFIG.SHOTGUN_DAMAGE (' +
+    (CONFIG.SHOTGUN_PELLETS * CONFIG.SHOTGUN_DAMAGE) + ')');
+})();
+
+// --- 2g: THE WALL STOP APPLIES PER PELLET, with the opened-wall control ------
+(function () {
+  scenario(2.5, 6.5, 1, 0);
+  Combat.hasShotgun = true;
+  Combat.weapon = Combat.SHOTGUN;
+  Combat.ammo.shells = 8;
+  const e = Enemies.add(7.5, 6.5);             // behind the single brick cell (6,6)
+  e.health = 500;
+
+  const h0 = e.health;
+  Weapons.fire();
+  const blockedDamage = h0 - e.health;
+
+  setCell(6, 6, 0);                            // open that ONE cell
+  const h1 = e.health;
+  Weapons.fire();
+  const openDamage = h1 - e.health;
+
+  assert(blockedDamage === 0,
+    '2g. WALL STOP PER PELLET: with the wall on the aim line a shotgun blast removes ZERO ' +
+    'health — not one of the ' + CONFIG.SHOTGUN_PELLETS + ' pellets got through');
+  assert(openDamage > 0 && openDamage % CONFIG.SHOTGUN_DAMAGE === 0,
+    '2g-ii. CONTROL: with that ONE cell opened the identical blast removes a POSITIVE ' +
+    'multiple of CONFIG.SHOTGUN_DAMAGE (' + openDamage + ' = ' +
+    (openDamage / CONFIG.SHOTGUN_DAMAGE) + ' pellets)');
+})();
+
+// --- 2h: the cooldown is the WEAPON'S, and switching cannot bypass it --------
+(function () {
+  scenario(2.5, 4.5, 1, 0);
+  Combat.hasShotgun = true;
+  Combat.weapon = Combat.SHOTGUN;
+  Combat.ammo.shells = 8;
+  Combat.ammo.bullets = 50;
+
+  Weapons.fire();
+  assert(near(Weapons.cooldown, CONFIG.SHOTGUN_COOLDOWN, 1e-12),
+    '2h. a shotgun shot charges the cooldown to CONFIG.SHOTGUN_COOLDOWN (' +
+    CONFIG.SHOTGUN_COOLDOWN + ', got ' + Weapons.cooldown + ')');
+
+  const settleFrames = 6;
+  setIntent(null);
+  simFrames(settleFrames);
+
+  // Now switch to the pistol WHILE the shotgun cooldown is still running, and ask
+  // to fire on the same frame. The switch must take effect and the shot must NOT.
+  const shotsBefore = Weapons.shotsFired;
+  const bulletsBefore = Combat.ammo.bullets;
+  setIntent({ weaponSlot: 1, fire: true });
+  simFrames(1);
+  setIntent(null);
+
+  const expectedCooldown = CONFIG.SHOTGUN_COOLDOWN - (settleFrames + 1) * FRAME_DT;
+  assert(Combat.weapon === Combat.PISTOL,
+    '2h-ii. the slot-1 select took effect on the SAME frame it was intended (Weapons.update ' +
+    'resolves the switch before the fire decision)');
+  assert(near(Weapons.cooldown, expectedCooldown, 1e-9),
+    '2h-iii. switching did NOT reset the in-progress cooldown: it is still the shotgun ' +
+    'timer counting down (' + Weapons.cooldown.toFixed(4) + ', expected ' +
+    expectedCooldown.toFixed(4) + ') — ONE shared timer, so 1-2-1-2 cannot double the ' +
+    'rate of fire (threat T-05-12)');
+  assert(Weapons.shotsFired === shotsBefore && Combat.ammo.bullets === bulletsBefore,
+    '2h-iv. and no shot came out of the freshly selected pistol while that timer ran');
+})();
+
+// --- 2i: an empty shotgun does not fire and does not fall back to bullets ----
+(function () {
+  scenario(2.5, 4.5, 1, 0);
+  Combat.hasShotgun = true;
+  Combat.weapon = Combat.SHOTGUN;
+  Combat.ammo.shells = 0;
+  const e = Enemies.add(3.5, 4.5);
+  const b0 = Combat.ammo.bullets, h0 = e.health;
+
+  const fired = Weapons.fire();
+
+  assert(fired === false && e.health === h0,
+    '2i. firing the shotgun with ZERO shells does not fire and damages nothing');
+  assert(Combat.ammo.bullets === b0 && Combat.ammo.shells === 0,
+    '2i-ii. and does NOT fall back to the pistol\'s bullets (' + b0 + ' still there)');
+  assert(Weapons.cooldown === 0,
+    '2i-iii. and the refused shotgun shot left the cooldown at 0');
+})();
+
+// --- 2j: the spread stream is DETERMINISTIC under reset() -------------------
+(function () {
+  function replay() {
+    scenario(2.5, 4.5, 1, 0);                  // scenario() ends with Weapons.reset()
+    Combat.hasShotgun = true;
+    Combat.weapon = Combat.SHOTGUN;
+    Combat.ammo.shells = 8;
+    const out = [];
+    for (let shot = 0; shot < 3; shot++) {
+      Weapons.cooldown = 0;
+      Weapons.fire();
+      for (let i = 0; i < Weapons.lastRayCount; i++) out.push(Weapons.rayAngles[i]);
+    }
+    return out;
+  }
+
+  const runA = replay();
+  const runB = replay();
+
+  let identical = runA.length === runB.length && runA.length > 0;
+  let firstDrift = -1;
+  for (let i = 0; identical && i < runA.length; i++) {
+    if (runA[i] !== runB[i]) { identical = false; firstDrift = i; }
+  }
+
+  assert(identical,
+    '2j. re-seeding through Weapons.reset() and replaying the scenario reproduces all ' +
+    runA.length + ' pellet angles ELEMENT FOR ELEMENT' +
+    (identical ? '' : ' — drifted at index ' + firstDrift));
+  assert(new Set(runA).size > 1,
+    '2j-ii. CONTROL (non-vacuity): the reproduced sequence has ' + new Set(runA).size +
+    ' distinct angles, so determinism is not just a constant repeated');
+})();
+
 finish('ALL_WEAPON_CONTRACTS_PASS');

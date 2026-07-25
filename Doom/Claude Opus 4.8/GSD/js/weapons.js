@@ -90,7 +90,8 @@ var Weapons = {
   TABLE: null,
 
   // Weapon-select SLOT -> weapon name. Index 0 is null: "no selection this frame".
-  SLOTS: [null, 'pistol']
+  // Data, so js/input.js's digit keys and this resolution cannot drift apart.
+  SLOTS: [null, 'pistol', 'shotgun']
 };
 
 (function () {
@@ -102,8 +103,10 @@ var Weapons = {
   var BIG = 1e30;
 
   // ===========================================================================
-  // THE WEAPON TABLE — data, read straight out of CONFIG (D-11). Task 05-02/2
-  // appends the shotgun; the pistol entry is the shape both share.
+  // THE WEAPON TABLE — data, read straight out of CONFIG (D-11). The two entries
+  // have the IDENTICAL shape and run the IDENTICAL fire path; the pistol is simply
+  // a one-pellet weapon with a tiny spread. `sprite` names the viewmodel asset the
+  // overlay pass draws for that weapon.
   // ===========================================================================
   Weapons.TABLE = {
     pistol: {
@@ -113,6 +116,15 @@ var Weapons = {
       spread: CONFIG.PISTOL_SPREAD,
       cooldown: CONFIG.PISTOL_COOLDOWN,
       ammo: CONFIG.PISTOL_AMMO,
+      sprite: 'weapon'
+    },
+    shotgun: {
+      name: 'shotgun',
+      damage: CONFIG.SHOTGUN_DAMAGE,     // PER PELLET
+      pellets: CONFIG.SHOTGUN_PELLETS,
+      spread: CONFIG.SHOTGUN_SPREAD,
+      cooldown: CONFIG.SHOTGUN_COOLDOWN,
+      ammo: CONFIG.SHOTGUN_AMMO,
       sprite: 'weapon'
     }
   };
@@ -388,6 +400,17 @@ var Weapons = {
     Weapons.updateViewmodel(dt);
 
     if (!intent) return;
+
+    // WEAPON SELECT RESOLVES FIRST, so a switch takes effect on the SAME frame it
+    // was intended and the fire decision below already sees the new weapon. The
+    // grant gate lives in Combat.selectWeapon (an inventory question), and the
+    // cooldown is deliberately NOT touched here — see the shared-timer note above.
+    var slot = intent.weaponSlot;
+    if (slot > 0 && slot < Weapons.SLOTS.length) {
+      var name = Weapons.SLOTS[slot];
+      if (name) Combat.selectWeapon(name);
+    }
+
     if (intent.fire === true && Weapons.cooldown <= 0) Weapons.fire();
   };
 

@@ -136,6 +136,29 @@ var Combat = {
     return Combat.health - before;
   };
 
+  // ===========================================================================
+  // SELECT A WEAPON (05-CONTEXT D-05/D-10) — the ONE place Combat.weapon changes.
+  //
+  // Returns whether the selection actually CHANGED, so a caller can decide whether
+  // to play a switch sound without reading state back. Three refusals, all silent
+  // and all mutating nothing:
+  //   . an unknown name (a typo or a future weapon that does not exist yet)
+  //   . the shotgun before Combat.hasShotgun has been granted (05-04's pickup)
+  //   . re-selecting the weapon already in hand
+  //
+  // The GRANT GATE lives here rather than in js/weapons.js on purpose: the weapon
+  // module owns firing, this file owns the inventory, and "do you own a shotgun"
+  // is an inventory question. Putting it here means plan 05-04's shotgun pickup
+  // only has to set hasShotgun and every path agrees.
+  // ===========================================================================
+  Combat.selectWeapon = function (name) {
+    if (name !== Combat.PISTOL && name !== Combat.SHOTGUN) return false;
+    if (name === Combat.SHOTGUN && !Combat.hasShotgun) return false;
+    if (Combat.weapon === name) return false;
+    Combat.weapon = name;
+    return true;
+  };
+
   Combat.addArmor = function (amount) {
     if (!isFinite(amount) || amount <= 0) return 0;
     var before = Combat.armor;
