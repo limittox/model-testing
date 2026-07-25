@@ -4,16 +4,16 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 05
 current_phase_name: enemy-ai-weapons-pickups
-status: executing
-stopped_at: Completed 05-03-PLAN.md
-last_updated: "2026-07-25T04:39:24.296Z"
+status: verifying
+stopped_at: Completed 05-04-PLAN.md — phase 5 plans all executed
+last_updated: "2026-07-25T05:23:59.157Z"
 last_activity: 2026-07-25
 last_activity_desc: Phase 05 execution started
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 14
-  completed_plans: 13
+  completed_plans: 14
 ---
 
 # Project State
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-07-23)
 
 Phase: 05 (enemy-ai-weapons-pickups) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-25 — Phase 05 execution started
 
-Progress: [█████████░] 93%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -72,6 +72,7 @@ Progress: [█████████░] 93%
 | Phase 05 P01 | ~65 min | 4 tasks | 14 files |
 | Phase 05 P02 | ~55 min | 3 tasks | 13 files |
 | Phase 05 P03 | ~45 min | 3 tasks | 6 files |
+| Phase 05 P04 | ~50 min | 3 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -117,6 +118,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Raycaster.overlayPasses is an ORDERED ARRAY, not a second nullable hook, because 05-04's message line must land on top of the viewmodel
 - [Phase ?]: Enemies.build() zeroes Game.kills as well as setting Game.totalKills — a rebuild resurrects every enemy, so a carried-over tally would count the living
 - [Phase ?]: The enemy pose table is sparse overrides on an explicitly written-out idle row, with face features derived from the head centre — the fall poses are data, and idle cannot drift
+- [Phase ?]: Pickups.collect deactivates the entity BEFORE applying the grant, so deactivation is unconditional on anything the grant does — no ordering exists in which an effect lands while the item stays on the floor
+- [Phase ?]: The message glyph scale is derived from Framebuffer.height and then CLAMPED DOWN by width; height alone lets a long message overflow the frame at large internal resolutions
+- [Phase ?]: 05-CONTEXT D-07's 'armor absorbs per 4' contradicts D-04's LOCKED divisor of 3; the D-04 lock wins and ARMOR_ABSORB_DIVISOR is untouched
 
 ### Pending Todos
 
@@ -141,6 +145,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-25T04:39:24.278Z
-Stopped at: Completed 05-03-PLAN.md
+Last session: 2026-07-25T05:23:59.132Z
+Stopped at: Completed 05-04-PLAN.md — phase 5 plans all executed
 Resume file: None

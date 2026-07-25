@@ -55,11 +55,11 @@ All code lives under `Doom/Claude Opus 4.8/GSD/`.
 
 ### Pickups
 
-- [ ] **PICK-01**: Health pickups restore player health up to the maximum
-- [ ] **PICK-02**: Armor pickups grant armor that absorbs a portion of incoming damage
-- [ ] **PICK-03**: Ammo pickups replenish weapon ammunition
-- [ ] **PICK-04**: A shotgun pickup grants the shotgun weapon (and shells)
-- [ ] **PICK-05**: Walking over a pickup collects it, shows an on-screen message, and plays a sound
+- [x] **PICK-01**: Health pickups restore player health up to the maximum
+- [x] **PICK-02**: Armor pickups grant armor that absorbs a portion of incoming damage
+- [x] **PICK-03**: Ammo pickups replenish weapon ammunition
+- [x] **PICK-04**: A shotgun pickup grants the shotgun weapon (and shells)
+- [x] **PICK-05**: Walking over a pickup collects it, shows an on-screen message, and plays a sound
 
 ### HUD
 
@@ -73,7 +73,7 @@ All code lives under `Doom/Claude Opus 4.8/GSD/`.
 ### Level & Progression
 
 - [x] **LVL-01**: A hand-designed grid level with rooms, corridors, and multiple wall/texture types
-- [ ] **LVL-02**: The level is populated with enemy spawns and pickups at designed positions
+- [x] **LVL-02**: The level is populated with enemy spawns and pickups at designed positions
 - [ ] **LVL-03**: The level has a reachable, visibly-marked exit
 - [ ] **LVL-04**: Reaching the exit triggers a victory state showing stats (kills, time)
 - [ ] **LVL-05**: Player health reaching zero triggers a death state with a restart option
@@ -147,12 +147,12 @@ Which phases cover which requirements. Populated during roadmap creation.
 | WEAP-03 | Phase 5 | Complete |
 | WEAP-04 | Phase 5 | Complete |
 | WEAP-05 | Phase 5 | Complete |
-| PICK-01 | Phase 5 | Pending |
-| PICK-02 | Phase 5 | Pending |
-| PICK-03 | Phase 5 | Pending |
-| PICK-04 | Phase 5 | Pending |
-| PICK-05 | Phase 5 | Pending |
-| LVL-02 | Phase 5 | Pending |
+| PICK-01 | Phase 5 | Complete |
+| PICK-02 | Phase 5 | Complete |
+| PICK-03 | Phase 5 | Complete |
+| PICK-04 | Phase 5 | Complete |
+| PICK-05 | Phase 5 | Complete |
+| LVL-02 | Phase 5 | Complete |
 | HUD-01 | Phase 6 | Pending |
 | HUD-02 | Phase 6 | Pending |
 | HUD-03 | Phase 6 | Pending |

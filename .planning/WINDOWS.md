@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 3
+open_count: 5
 waived_count: 0
 fixed_count: 0
-total_count: 3
-last_updated: 2026-07-25T03:36:47.001Z
+total_count: 5
+last_updated: 2026-07-25T05:20:53.232Z
 ---
 
 # Broken Windows Ledger
@@ -18,6 +18,8 @@ last_updated: 2026-07-25T03:36:47.001Z
 | 1 | 02 | unrun-verify | Doom/Claude Opus 4.8/GSD/index.html |  | Coverage D10: real-browser confirmation (file:// + static server, empty DevTools console) after adding js/level.js to the load order — delegated to the orchestrator's browser pass | open |  | 2026-07-24T00:58:40.386Z |  |
 | 2 | 02 | unrun-verify | Doom/Claude Opus 4.8/GSD/index.html |  | 02-03: 8-step live browser confirmation (mouse-look feel, slide-vs-stick, Escape->arrow fallback, tab-switch survival, resize crispness, empty console/network) from file:// and static server — delegated to orchestrator browser pass | open |  | 2026-07-24T05:26:32.339Z |  |
 | 3 | 05 | deviation | Doom/Claude Opus 4.8/GSD/js/enemies.js |  | ENEM-04/ENEM-05 gap: hurt() sets the death state but the pain reaction, death animation, corpse and kill count are plan 05-03; an enemy in the death state falls through the state switch | open |  | 2026-07-25T03:36:47.001Z |  |
+| 4 | 05 | stub | Doom/Claude Opus 4.8/GSD/js/sound.js |  | Sound.play(name) is a RECORDING HOOK, not audio: it records the event and returns, creating no AudioContext. Intentional per the 05-CONTEXT phase boundary (audio is Phase 6 AUD-01/02/03, which replaces the body with Web Audio synthesis and adds the firing/enemy-death/player-damage call sites). Only the PICK-05 pickup call site is wired. | open |  | 2026-07-25T05:20:52.542Z |  |
+| 5 | 05 | unrun-verify | Doom/Claude Opus 4.8/GSD/index.html |  | 05-04: real-browser play-test of the full combat loop (walk the populated level, fight, take damage, collect health/armor/ammo/shotgun, watch the message appear and fade, confirm collected items vanish and cannot be retaken) from file:// and a static server with zero console/network errors — delegated to the orchestrator's browser pass; a headless proxy driving Game.step(0.016)+render+present is green | open |  | 2026-07-25T05:20:53.232Z |  |
 
 ````json
 [
@@ -55,6 +57,30 @@ last_updated: 2026-07-25T03:36:47.001Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-07-25T03:36:47.001Z",
+    "resolved_at": null
+  },
+  {
+    "id": 4,
+    "kind": "stub",
+    "phase": "05",
+    "file": "Doom/Claude Opus 4.8/GSD/js/sound.js",
+    "line": null,
+    "description": "Sound.play(name) is a RECORDING HOOK, not audio: it records the event and returns, creating no AudioContext. Intentional per the 05-CONTEXT phase boundary (audio is Phase 6 AUD-01/02/03, which replaces the body with Web Audio synthesis and adds the firing/enemy-death/player-damage call sites). Only the PICK-05 pickup call site is wired.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-07-25T05:20:52.542Z",
+    "resolved_at": null
+  },
+  {
+    "id": 5,
+    "kind": "unrun-verify",
+    "phase": "05",
+    "file": "Doom/Claude Opus 4.8/GSD/index.html",
+    "line": null,
+    "description": "05-04: real-browser play-test of the full combat loop (walk the populated level, fight, take damage, collect health/armor/ammo/shotgun, watch the message appear and fade, confirm collected items vanish and cannot be retaken) from file:// and a static server with zero console/network errors — delegated to the orchestrator's browser pass; a headless proxy driving Game.step(0.016)+render+present is green",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-07-25T05:20:53.232Z",
     "resolved_at": null
   }
 ]
