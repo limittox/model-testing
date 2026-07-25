@@ -52,6 +52,24 @@ var Raycaster = {
   // Phase-3 render harness, which disables it to keep the wall/floor assertions
   // unperturbed).
   spritePass: null,
+
+  // PHASE 5 OVERLAY SEAM (05-02). An ORDERED ARRAY of zero-argument functions
+  // invoked, in order, as the LAST statements of render() — AFTER the sprite pass
+  // and still BEFORE Game.render's single present(), so anything drawn here is
+  // composited into the same frame without a second view and without a second
+  // present.
+  //
+  // WHY AN ARRAY AND NOT A SECOND `spritePass`-STYLE HOOK: more than one thing
+  // wants this slot and the ORDER between them matters. 05-02 appends the weapon
+  // viewmodel; plan 05-04 appends the in-framebuffer message line, which must land
+  // ON TOP of the weapon. A single nullable hook would force the second consumer to
+  // wrap the first.
+  //
+  // It defaults to an EMPTY ARRAY, so a harness that wants the wall/floor/sprite
+  // passes in isolation simply truncates it (tools/verify-render.cjs and
+  // tools/verify-sprites.cjs do exactly that after boot, the same way verify-render
+  // nulls the sprite seam). Iterated by index with no closure and no allocation.
+  overlayPasses: [],
 };
 
 (function () {
@@ -279,6 +297,15 @@ var Raycaster = {
     // Phase-3 render harness (which verifies the wall/floor contracts in
     // isolation). Sprites read zBuffer and write buf32; they do NOT present.
     if (Raycaster.spritePass) Raycaster.spritePass();
+
+    // ---- OVERLAY PASSES (Phase 5 seam) ---------------------------------------
+    // The genuinely LAST statements of render(): screen-space overlays that belong
+    // in the player's HANDS rather than in the world (the weapon viewmodel), drawn
+    // after every world pass and before Game.render's present. They read nothing
+    // from zBuffer and must never write it. Index iteration, no closure, no
+    // allocation.
+    var overlays = Raycaster.overlayPasses;
+    for (var oi = 0; oi < overlays.length; oi++) overlays[oi]();
   };
 
 })();

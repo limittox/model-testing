@@ -116,7 +116,7 @@ var Weapons = {
       spread: CONFIG.PISTOL_SPREAD,
       cooldown: CONFIG.PISTOL_COOLDOWN,
       ammo: CONFIG.PISTOL_AMMO,
-      sprite: 'weapon'
+      sprite: 'weaponPistol'
     },
     shotgun: {
       name: 'shotgun',
@@ -125,7 +125,7 @@ var Weapons = {
       spread: CONFIG.SHOTGUN_SPREAD,
       cooldown: CONFIG.SHOTGUN_COOLDOWN,
       ammo: CONFIG.SHOTGUN_AMMO,
-      sprite: 'weapon'
+      sprite: 'weaponShotgun'
     }
   };
 
@@ -379,6 +379,127 @@ var Weapons = {
     if (Weapons.flash > 0) {
       Weapons.flash -= dt;
       if (Weapons.flash < 0) Weapons.flash = 0;
+    }
+  };
+
+  // ===========================================================================
+  // THE VIEWMODEL DRAW (WEAP-04) — pushed onto Raycaster.overlayPasses by main.js,
+  // so it runs as the last thing inside Raycaster.render(): after the wall pass,
+  // after the sprite pass, and still before Game.render's SINGLE present().
+  //
+  // THE VIEWMODEL IS NOT IN THE WORLD. It is in the player's hands, which has three
+  // consequences the world passes do not share:
+  //   . it is drawn UNFOGGED — the raw texel is written, never applyShade'd, so a
+  //     player standing in a dark corner still sees their own gun;
+  //   . it NEVER writes Framebuffer.zBuffer (nothing in the world can be occluded
+  //     by it, and the next frame's wall pass owns every column);
+  //   . its position is SCREEN space (a bottom-centre anchor plus bob and recoil
+  //     offsets), not a billboard projection.
+  //
+  // INDEX SAFETY (threat T-05-13): the destination loop bounds are clamped into
+  // [0,W) x [0,H) and every source index is clamped into the asset, exactly as the
+  // Phase 4 sprite pass clamps them. The bob and recoil offsets are bounded by
+  // CONFIG.BOB_AMP_PIXELS and CONFIG.RECOIL_PIXELS, so no reachable state can push
+  // the box far enough to matter — but the clamp is structural, not a consequence
+  // of the tuning.
+  // ===========================================================================
+
+  // Nearest-neighbour alpha-keyed blit of `tex` into the framebuffer at an
+  // UNCLAMPED destination origin/size. The unclamped origin stays the texel-mapping
+  // reference (the discipline the wall pass's unclamped texPos and the sprite pass's
+  // unclamped originX/originY both use) while the LOOP bounds are clamped, so a
+  // partly off-screen viewmodel shows the correct slice instead of squashing.
+  function blitViewmodel(tex, dx0, dy0, dw, dh) {
+    if (!(dw > 0) || !(dh > 0)) return;
+    var W = Framebuffer.width, H = Framebuffer.height;
+    var buf = Framebuffer.buf32;
+    var tbuf = tex.buf32, TW = tex.width, TH = tex.height;
+    var ALPHA_KEY = Sprites.ALPHA_KEY;
+
+    var x0 = dx0 < 0 ? 0 : dx0;
+    var y0 = dy0 < 0 ? 0 : dy0;
+    var x1 = dx0 + dw; if (x1 > W) x1 = W;
+    var y1 = dy0 + dh; if (y1 > H) y1 = H;
+
+    for (var y = y0; y < y1; y++) {
+      var sy = Math.floor((y - dy0) * TH / dh);
+      if (sy < 0) sy = 0; else if (sy > TH - 1) sy = TH - 1;
+      var srow = sy * TW;
+      var drow = y * W;
+      for (var x = x0; x < x1; x++) {
+        var sx = Math.floor((x - dx0) * TW / dw);
+        if (sx < 0) sx = 0; else if (sx > TW - 1) sx = TW - 1;
+        var packed = tbuf[srow + sx];
+        // THE ALPHA KEY runs on the RAW texel, before anything else touches it —
+        // the same binary 0-or-255 contract the sprite pass relies on, which is
+        // structurally why there is no halo.
+        if (((packed >>> 24) & 0xff) < ALPHA_KEY) continue;
+        buf[drow + x] = packed;      // UNFOGGED: the raw texel, written as-is
+      }
+    }
+  }
+
+  // The last drawn WEAPON box, recorded (never allocated — one reused record) so a
+  // harness and a future HUD can ask where the gun ended up without re-deriving the
+  // bob and recoil arithmetic.
+  Weapons.viewmodelBox = { x: 0, y: 0, w: 0, h: 0, bobX: 0, bobY: 0, kick: 0, drawn: false };
+
+  // The current recoil offset in pixels: CONFIG.RECOIL_PIXELS eased linearly to
+  // zero across CONFIG.RECOIL_TIME. Exposed so the harness can recompute the
+  // expected box from the same numbers rather than trusting the recorded one.
+  Weapons.recoilOffset = function () {
+    if (!(Weapons.recoil > 0) || !(CONFIG.RECOIL_TIME > 0)) return 0;
+    return Math.round(CONFIG.RECOIL_PIXELS * (Weapons.recoil / CONFIG.RECOIL_TIME));
+  };
+
+  Weapons.renderViewmodel = function () {
+    var w = Weapons.TABLE[Combat.weapon];
+    var box = Weapons.viewmodelBox;
+    box.drawn = false;
+    if (!w) return;
+    if (typeof Sprites === 'undefined' || !Sprites.map) return;
+    var tex = Sprites.map[w.sprite];
+    if (!tex) return;
+
+    var W = Framebuffer.width, H = Framebuffer.height;
+    // Height is a fixed FRACTION of the frame and the width is derived from the
+    // SOURCE ASPECT, so the weapon keeps its proportions on every viewport aspect
+    // (using W for either would stretch it on widescreen).
+    var destH = Math.floor(H * CONFIG.VIEWMODEL_HEIGHT_FRAC);
+    if (destH < 1) return;
+    var destW = Math.floor(destH * tex.width / tex.height);
+    if (destW < 1) return;
+
+    // BOB: horizontal on the fundamental, vertical on the SECOND harmonic (twice
+    // the phase, absolute value) — the classic figure-of-eight that reads as a
+    // stride rather than a sway. Both scale with the speed-derived amplitude, so a
+    // standing player's weapon is dead still.
+    var amp = Weapons.bobAmp;
+    var bobX = Math.round(Math.sin(Weapons.bobPhase) * amp);
+    var bobY = Math.round(Math.abs(Math.sin(2 * Weapons.bobPhase)) * amp);
+    var kick = Weapons.recoilOffset();
+
+    var baseX = ((W - destW) >> 1) + bobX;   // bottom-CENTRE anchor
+    var baseY = H - destH + bobY + kick;     // recoil pushes the gun DOWN
+
+    blitViewmodel(tex, baseX, baseY, destW, destH);
+
+    box.x = baseX; box.y = baseY; box.w = destW; box.h = destH;
+    box.bobX = bobX; box.bobY = bobY; box.kick = kick;
+    box.drawn = true;
+
+    // THE MUZZLE FLASH, sized and anchored RELATIVE to the weapon box, so it rides
+    // the bob and the recoil for free instead of needing its own offsets.
+    if (Weapons.flash > 0) {
+      var flashTex = Sprites.map.muzzleFlash;
+      if (!flashTex) return;
+      var fh = Math.floor(destH * CONFIG.MUZZLE_FLASH_SCALE);
+      if (fh < 1) return;
+      var fw = Math.floor(fh * flashTex.width / flashTex.height);
+      if (fw < 1) return;
+      var fcx = baseX + (destW >> 1);
+      var fcy = baseY + Math.floor(destH * CONFIG.MUZZLE_FLASH_ANCHOR_Y);
+      blitViewmodel(flashTex, fcx - (fw >> 1), fcy - (fh >> 1), fw, fh);
     }
   };
 

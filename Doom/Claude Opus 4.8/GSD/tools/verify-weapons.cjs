@@ -708,4 +708,416 @@ function scenario(px, py, dx, dy) {
     ' distinct angles, so determinism is not just a constant repeated');
 })();
 
+// ===========================================================================
+// 3. THE VIEWMODEL (WEAP-04): the ordered overlay seam, the bottom-centre draw,
+//    the no-halo unfogged blit, the movement bob, the recoil kick and the muzzle
+//    flash window — each with a control.
+//
+//    NOTE ON DRIVERS: this section renders with Raycaster.render() and NEVER calls
+//    Framebuffer.present() by hand, because Game.render owns the single present. That
+//    is what lets 3h assert present-count == frame-count over the whole harness.
+// ===========================================================================
+
+const W = Framebuffer.width;
+const H = Framebuffer.height;
+
+// Render the frame with the overlay seam TRUNCATED (the background the viewmodel
+// will be composited over), restoring the seam exactly as it was.
+function renderBg() {
+  const saved = Raycaster.overlayPasses.slice();
+  Raycaster.overlayPasses.length = 0;
+  Raycaster.render();
+  const bg = Framebuffer.buf32.slice();
+  for (let i = 0; i < saved.length; i++) Raycaster.overlayPasses.push(saved[i]);
+  return bg;
+}
+function renderWithOverlay() {
+  Raycaster.render();
+  return Framebuffer.buf32.slice();
+}
+
+// The bounding box (and count) of the pixels the overlay changed.
+function diffBox(bg, cur) {
+  let n = 0, minx = 1e9, maxx = -1, miny = 1e9, maxy = -1;
+  for (let y = 0; y < H; y++) {
+    const row = y * W;
+    for (let x = 0; x < W; x++) {
+      if (cur[row + x] !== bg[row + x]) {
+        n += 1;
+        if (x < minx) minx = x;
+        if (x > maxx) maxx = x;
+        if (y < miny) miny = y;
+        if (y > maxy) maxy = y;
+      }
+    }
+  }
+  return { n, minx, maxx, miny, maxy };
+}
+
+// The set of OPAQUE packed texel values in an asset — the only values the unfogged
+// viewmodel blit is allowed to write.
+function opaqueTexels(tex) {
+  const set = new Set();
+  for (let i = 0; i < tex.buf32.length; i++) {
+    const p = tex.buf32[i] >>> 0;
+    if (((p >>> 24) & 0xff) >= Sprites.ALPHA_KEY) set.add(p);
+  }
+  return set;
+}
+
+// AN INDEPENDENT recompute of the destination box — written from the documented
+// formula (a bottom-centre anchor, plus the bob offsets, plus the eased recoil),
+// NOT read out of Weapons.viewmodelBox, so a bug shared with the renderer cannot
+// hide behind a self-reported number.
+function expectedBox() {
+  const w = Weapons.TABLE[Combat.weapon];
+  const tex = Sprites.map[w.sprite];
+  const destH = Math.floor(H * CONFIG.VIEWMODEL_HEIGHT_FRAC);
+  const destW = Math.floor(destH * tex.width / tex.height);
+  const amp = Weapons.bobAmp;
+  const bobX = Math.round(Math.sin(Weapons.bobPhase) * amp);
+  const bobY = Math.round(Math.abs(Math.sin(2 * Weapons.bobPhase)) * amp);
+  const kick = (Weapons.recoil > 0 && CONFIG.RECOIL_TIME > 0)
+    ? Math.round(CONFIG.RECOIL_PIXELS * (Weapons.recoil / CONFIG.RECOIL_TIME))
+    : 0;
+  return {
+    tex,
+    x: ((W - destW) >> 1) + bobX,
+    y: H - destH + bobY + kick,
+    w: destW, h: destH
+  };
+}
+
+// --- 3-0: boot wired the seam ------------------------------------------------
+(function () {
+  assert(Array.isArray(Raycaster.overlayPasses),
+    '3-0a. Raycaster.overlayPasses is an ARRAY (an ORDERED seam — 05-04 appends the ' +
+    'message line after the viewmodel so text lands on top of the gun)');
+  assert(Raycaster.overlayPasses.indexOf(Weapons.renderViewmodel) >= 0,
+    '3-0b. main.js pushed Weapons.renderViewmodel onto Raycaster.overlayPasses at boot');
+  assert(Sprites.map.weaponPistol && Sprites.map.weaponShotgun && Sprites.map.muzzleFlash &&
+    Sprites.map.weapon === Sprites.map.weaponPistol,
+    '3-0c. the two viewmodels and the muzzle flash resolve, and the legacy ' +
+    'Sprites.map.weapon key IS the pistol viewmodel (strict identity alias)');
+  // Every viewmodel asset obeys the binary-alpha contract every other sprite obeys —
+  // this is the structural reason the blit cannot produce a halo.
+  let binary = true, bad = null;
+  for (const name of ['weaponPistol', 'weaponShotgun', 'muzzleFlash']) {
+    const tex = Sprites.map[name];
+    for (let i = 0; i < tex.buf32.length; i++) {
+      const a = (tex.buf32[i] >>> 24) & 0xff;
+      if (a !== 0 && a !== 255) { binary = false; bad = name; break; }
+    }
+  }
+  assert(binary,
+    '3-0d. every texel alpha in both viewmodels and the muzzle flash is exactly 0 or 255' +
+    (binary ? '' : ' — ' + bad + ' has a partial-alpha texel'));
+  // The flash palette is DISJOINT from both weapon palettes — the precondition that
+  // makes 3f's "flash pixels are present / absent" measurement meaningful.
+  const flashSet = opaqueTexels(Sprites.map.muzzleFlash);
+  const gunSet = new Set([...opaqueTexels(Sprites.map.weaponPistol),
+                          ...opaqueTexels(Sprites.map.weaponShotgun)]);
+  let overlap = 0;
+  for (const v of flashSet) if (gunSet.has(v)) overlap += 1;
+  assert(overlap === 0 && flashSet.size > 0,
+    '3-0e. the muzzle flash\'s ' + flashSet.size + ' emissive colours are DISJOINT from ' +
+    'both weapon palettes — so counting flash-coloured pixels in a frame is a real ' +
+    'measurement of the flash (overlap ' + overlap + ')');
+})();
+
+// --- 3a: the seam draws, and it draws BOTTOM-CENTRE ---------------------------
+(function () {
+  scenario(2.5, 4.5, 1, 0);
+  const bg = renderBg();
+  const cur = renderWithOverlay();
+  const d = diffBox(bg, cur);
+
+  assert(d.n > 0,
+    '3a. a rendered frame DIFFERS from the same frame with the overlay seam truncated (' +
+    d.n + ' pixels changed) — the viewmodel is actually composited');
+  assert(d.miny >= H / 2 && d.maxy <= H - 1,
+    '3a-ii. every changed pixel is in the BOTTOM half of the frame (rows ' + d.miny +
+    '..' + d.maxy + ' of ' + H + ')');
+  assert(d.minx >= W / 4 && d.maxx <= 3 * W / 4,
+    '3a-iii. and horizontally CENTRED (cols ' + d.minx + '..' + d.maxx + ' of ' + W + ')');
+})();
+
+// --- 3b: THE NO-HALO PROOF — exact texels in, background untouched out --------
+(function () {
+  scenario(2.5, 4.5, 1, 0);
+  // No flash and no recoil: this proof is about the weapon blit alone.
+  Weapons.flash = 0;
+  Weapons.recoil = 0;
+
+  const bg = renderBg();
+  const cur = renderWithOverlay();
+  const box = expectedBox();
+  const tex = box.tex;
+
+  let opaqueExact = 0, opaqueWrong = 0;
+  let skippedExact = 0, skippedWrong = 0;
+  let outsideWrong = 0;
+
+  for (let y = 0; y < H; y++) {
+    const row = y * W;
+    for (let x = 0; x < W; x++) {
+      const inside = (x >= box.x && x < box.x + box.w && y >= box.y && y < box.y + box.h);
+      if (!inside) {
+        // OUTSIDE the recomputed box nothing may have changed at all.
+        if (cur[row + x] !== bg[row + x]) outsideWrong += 1;
+        continue;
+      }
+      // INSIDE: the nearest-neighbour source texel decides exactly what must be there.
+      let sy = Math.floor((y - box.y) * tex.height / box.h);
+      if (sy < 0) sy = 0; else if (sy > tex.height - 1) sy = tex.height - 1;
+      let sx = Math.floor((x - box.x) * tex.width / box.w);
+      if (sx < 0) sx = 0; else if (sx > tex.width - 1) sx = tex.width - 1;
+      const packed = tex.buf32[sy * tex.width + sx] >>> 0;
+
+      if (((packed >>> 24) & 0xff) < Sprites.ALPHA_KEY) {
+        // A skipped texel must leave the pre-overlay pixel byte-for-byte intact.
+        if ((cur[row + x] >>> 0) === (bg[row + x] >>> 0)) skippedExact += 1;
+        else skippedWrong += 1;
+      } else {
+        // A written texel must be the RAW source value — UNFOGGED — and opaque.
+        if ((cur[row + x] >>> 0) === packed && ((cur[row + x] >>> 24) & 0xff) === 0xff) {
+          opaqueExact += 1;
+        } else {
+          opaqueWrong += 1;
+        }
+      }
+    }
+  }
+
+  assert(opaqueWrong === 0 && opaqueExact > 0,
+    '3b. every pixel the viewmodel WRITES equals the RAW source texel and is fully ' +
+    'opaque — unfogged, nearest-neighbour, no shading (' + opaqueExact + ' exact, ' +
+    opaqueWrong + ' wrong)');
+  assert(skippedWrong === 0 && skippedExact > 0,
+    '3b-ii. every pixel the alpha key SKIPS is byte-for-byte the pre-overlay frame (' +
+    skippedExact + ' preserved, ' + skippedWrong + ' corrupted) — structurally no halo');
+  assert(outsideWrong === 0,
+    '3b-iii. nothing OUTSIDE the independently recomputed destination box changed (' +
+    outsideWrong + ' stray writes) — the blit indices are clamped, not lucky ' +
+    '(threat T-05-13)');
+})();
+
+// --- 3c: the overlay never writes the z-buffer -------------------------------
+(function () {
+  scenario(2.5, 4.5, 1, 0);
+  const bg = renderBg();                        // fills zBuffer via the wall pass
+  const z0 = Framebuffer.zBuffer.slice();
+
+  Weapons.flash = CONFIG.MUZZLE_FLASH_TIME;     // exercise BOTH blits
+  Weapons.recoil = CONFIG.RECOIL_TIME;
+  Weapons.renderViewmodel();                    // the overlay pass IN ISOLATION
+
+  let same = true, at = -1;
+  for (let i = 0; i < z0.length; i++) {
+    if (Framebuffer.zBuffer[i] !== z0[i]) { same = false; at = i; break; }
+  }
+  // Non-vacuity: the pass we just isolated really did draw something.
+  const d = diffBox(bg, Framebuffer.buf32);
+
+  assert(same,
+    '3c. Framebuffer.zBuffer is byte-for-byte identical before and after the overlay ' +
+    'pass (weapon + flash)' + (same ? '' : ' — diverged at column ' + at));
+  assert(d.n > 0,
+    '3c-ii. CONTROL (non-vacuity): that isolated overlay pass did write ' + d.n +
+    ' framebuffer pixels, so 3c is not measuring a no-op');
+  Weapons.flash = 0;
+  Weapons.recoil = 0;
+})();
+
+// --- 3d: THE BOB scales with movement speed, and a standing gun is still ------
+(function () {
+  // Measure the drawn bounding box once per stepped frame.
+  function drive(frames, intent) {
+    scenario(2.5, 4.5, 1, 0);
+    setIntent(intent);
+    const boxes = [];
+    for (let f = 0; f < frames; f++) {
+      Game.step(FRAME_DT);
+      const bg = renderBg();
+      const cur = renderWithOverlay();
+      boxes.push(diffBox(bg, cur));
+    }
+    setIntent(null);
+    return boxes;
+  }
+
+  // STANDING: no travel => zero amplitude => a frozen phase => an identical box.
+  const still = drive(30, null);
+  const stillKey = (b) => b.minx + '|' + b.maxx + '|' + b.miny + '|' + b.maxy;
+  const stillDistinct = new Set(still.map(stillKey));
+  assert(stillDistinct.size === 1 && still[0].n > 0,
+    '3d. with the player STATIONARY the drawn bounding box is IDENTICAL across 30 frames (' +
+    stillDistinct.size + ' distinct box, ' + still[0].n + ' pixels) — a standing weapon ' +
+    'is dead still');
+
+  // WALKING: the box must genuinely move.
+  const walk = drive(30, { forward: 1 });
+  const walkDistinct = new Set(walk.map(stillKey));
+  const walkX = walk.map((b) => b.minx);
+  const walkExcursion = Math.max(...walkX) - Math.min(...walkX);
+  assert(walkDistinct.size >= 2,
+    '3d-ii. after 30 frames of forward movement the bounding box takes at least two ' +
+    'distinct positions (' + walkDistinct.size + ' distinct) — the weapon bobs');
+
+  // RUNNING: a LARGER horizontal excursion than walking. The amplitude scales with
+  // speed relative to the MAXIMUM ground speed (walk * RUN_MULT), which is what
+  // makes running visibly different — see 05-02-SUMMARY's deviation note.
+  const run = drive(30, { forward: 1, run: true });
+  const runX = run.map((b) => b.minx);
+  const runExcursion = Math.max(...runX) - Math.min(...runX);
+  assert(runExcursion > walkExcursion,
+    '3d-iii. the horizontal excursion is LARGER at run speed than at walk speed (run ' +
+    runExcursion + ' px > walk ' + walkExcursion + ' px)');
+  assert(walkExcursion > 0,
+    '3d-iv. CONTROL (non-vacuity): the walking excursion is itself non-zero (' +
+    walkExcursion + ' px), so 3d-iii compares two real motions');
+})();
+
+// --- 3e: THE RECOIL kicks the weapon down and eases back ---------------------
+//     ISOLATION NOTE: the muzzle flash is anchored near the weapon's MUZZLE and its
+//     burst reaches ABOVE the weapon's top edge, so a bounding box measured on the
+//     shot frame itself is the FLASH's box, not the weapon's. The recoil is
+//     therefore measured on the first frame after the flash window has closed while
+//     the kick is still easing — which CONFIG guarantees exists, and 3e-0 asserts.
+(function () {
+  assert(CONFIG.MUZZLE_FLASH_TIME < CONFIG.RECOIL_TIME,
+    '3e-0. CONFIG.MUZZLE_FLASH_TIME (' + CONFIG.MUZZLE_FLASH_TIME + ') is shorter than ' +
+    'CONFIG.RECOIL_TIME (' + CONFIG.RECOIL_TIME + '), so there is a window in which the ' +
+    'recoil can be measured with no flash contaminating the bounding box');
+
+  scenario(2.5, 4.5, 1, 0);
+  setIntent(null);
+
+  // Resting position: stationary, nothing fired, no flash, no kick.
+  Game.step(FRAME_DT);
+  const restTop = diffBox(renderBg(), renderWithOverlay()).miny;
+
+  Weapons.fire();
+  const flashFrames = Math.ceil(CONFIG.MUZZLE_FLASH_TIME / FRAME_DT);
+  for (let f = 0; f < flashFrames; f++) Game.step(FRAME_DT);
+
+  assert(Weapons.flash === 0 && Weapons.recoil > 0,
+    '3e-i. after ' + flashFrames + ' frames the flash has closed while the recoil is ' +
+    'still easing (' + Weapons.recoil.toFixed(4) + 's left) — the isolation precondition holds');
+
+  const kick = Weapons.recoilOffset();
+  const kickedTop = diffBox(renderBg(), renderWithOverlay()).miny;
+
+  assert(kick > 0 && kickedTop === restTop + kick,
+    '3e. after a shot the drawn bounding box TOP is LOWER on screen by EXACTLY the eased ' +
+    'recoil offset (' + kickedTop + ' === resting ' + restTop + ' + ' + kick +
+    ') — the kick pushes the weapon down and decays linearly over CONFIG.RECOIL_TIME');
+
+  // Within CONFIG.RECOIL_TIME of stepped frames it must be back at rest.
+  const recoilFrames = Math.ceil(CONFIG.RECOIL_TIME / FRAME_DT) + 1;
+  for (let f = 0; f < recoilFrames; f++) Game.step(FRAME_DT);
+  const easedTop = diffBox(renderBg(), renderWithOverlay()).miny;
+
+  assert(Weapons.recoil === 0 && easedTop === restTop,
+    '3e-ii. and it has eased all the way back to the resting position within ' +
+    'CONFIG.RECOIL_TIME (' + recoilFrames + ' frames; top ' + easedTop + ' === ' +
+    restTop + ')');
+})();
+
+// --- 3f: THE MUZZLE FLASH window ---------------------------------------------
+(function () {
+  scenario(2.5, 4.5, 1, 0);
+  setIntent(null);
+  Game.step(FRAME_DT);
+
+  const flashSet = opaqueTexels(Sprites.map.muzzleFlash);
+  const bg = renderBg();
+  // Count only pixels the OVERLAY changed that carry a flash colour, so nothing in
+  // the wall/floor background can contribute to the measurement.
+  function flashPixels() {
+    const cur = renderWithOverlay();
+    let n = 0;
+    for (let i = 0; i < cur.length; i++) {
+      if (cur[i] !== bg[i] && flashSet.has(cur[i] >>> 0)) n += 1;
+    }
+    return n;
+  }
+
+  // CONTROL FIRST: a frame on which nothing was fired has NO flash pixels.
+  const beforeShot = flashPixels();
+  assert(beforeShot === 0,
+    '3f. CONTROL: on a frame where nothing was fired there are ZERO flash-coloured ' +
+    'pixels (got ' + beforeShot + ')');
+
+  Weapons.fire();
+  const atShot = flashPixels();
+  assert(atShot > 0,
+    '3f-ii. immediately after a shot flash-coloured pixels are PRESENT (' + atShot + ')');
+
+  // Just BEFORE the window closes: the largest whole frame count still inside it.
+  const insideFrames = Math.ceil(CONFIG.MUZZLE_FLASH_TIME / FRAME_DT) - 1;
+  for (let f = 0; f < insideFrames; f++) Game.step(FRAME_DT);
+  const stillInside = flashPixels();
+  assert(Weapons.flash > 0 && stillInside > 0,
+    '3f-iii. still present after ' + insideFrames + ' frames, with ' +
+    Weapons.flash.toFixed(4) + 's of CONFIG.MUZZLE_FLASH_TIME left (' + stillInside +
+    ' pixels)');
+
+  // And gone once the window has elapsed.
+  Game.step(FRAME_DT);
+  Game.step(FRAME_DT);
+  const after = flashPixels();
+  assert(Weapons.flash === 0 && after === 0,
+    '3f-iv. and ABSENT once CONFIG.MUZZLE_FLASH_TIME has elapsed (' + after + ' pixels)');
+})();
+
+// --- 3g: the viewmodel follows the SELECTED weapon ---------------------------
+(function () {
+  scenario(2.5, 4.5, 1, 0);
+  Combat.hasShotgun = true;
+  Weapons.flash = 0;
+  Weapons.recoil = 0;
+
+  const bg = renderBg();
+
+  Combat.weapon = Combat.PISTOL;
+  const pistolFrame = renderWithOverlay();
+  Combat.weapon = Combat.SHOTGUN;
+  const shotgunFrame = renderWithOverlay();
+
+  let differs = 0;
+  for (let i = 0; i < pistolFrame.length; i++) {
+    if (pistolFrame[i] !== shotgunFrame[i]) differs += 1;
+  }
+
+  // Stronger than "the frames differ": the shotgun frame must contain a colour that
+  // exists ONLY in the shotgun asset (its wood tones), so the change is the shotgun
+  // being drawn and not a stray pixel.
+  const pistolSet = opaqueTexels(Sprites.map.weaponPistol);
+  const shotgunOnly = new Set();
+  for (const v of opaqueTexels(Sprites.map.weaponShotgun)) {
+    if (!pistolSet.has(v)) shotgunOnly.add(v);
+  }
+  let shotgunOnlyDrawn = 0;
+  for (let i = 0; i < shotgunFrame.length; i++) {
+    if (shotgunFrame[i] !== bg[i] && shotgunOnly.has(shotgunFrame[i] >>> 0)) shotgunOnlyDrawn += 1;
+  }
+
+  assert(differs > 0,
+    '3g. switching to the shotgun changes the drawn pixel signature (' + differs +
+    ' pixels differ) — the viewmodel follows Combat.weapon');
+  assert(shotgunOnlyDrawn > 0,
+    '3g-ii. and the shotgun frame contains ' + shotgunOnlyDrawn + ' pixels in colours that ' +
+    'exist ONLY in the shotgun asset — it is the shotgun being drawn, not a smear');
+  Combat.weapon = Combat.PISTOL;
+})();
+
+// --- 3h: ONE present per frame survived the new seam -------------------------
+(function () {
+  assert(h.putCount() === Game.frames,
+    '3h. putImageData count equals frame count across the whole harness (' + h.putCount() +
+    ' === ' + Game.frames + ') — the overlay seam runs INSIDE Raycaster.render(), so ' +
+    'Game.render still owns exactly one present per frame');
+})();
+
 finish('ALL_WEAPON_CONTRACTS_PASS');

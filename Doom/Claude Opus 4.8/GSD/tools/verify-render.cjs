@@ -48,6 +48,16 @@ h.fireLoad();
 // weakened — the sprite seam simply does not run in the wall/floor harness.
 h.sandbox.Raycaster.spritePass = null;
 
+// Phase-5 (05-02) regression update, IDENTICAL in kind to the line above. main.js
+// has also pushed the weapon viewmodel onto Raycaster.overlayPasses, which draws
+// over the bottom-centre of every frame. Truncating the array IN PLACE (never
+// reassigning it, so anything holding a reference keeps watching the live array)
+// keeps this harness's exact wall/floor pixels unperturbed. The viewmodel's own
+// proofs — including its no-halo, unfogged and zero-z-buffer contracts — live in
+// tools/verify-weapons.cjs section 3. This is ISOLATION, not weakening: no
+// assertion here changed, the overlay simply does not run in the wall/floor harness.
+h.sandbox.Raycaster.overlayPasses.length = 0;
+
 const s = h.sandbox;
 const CONFIG = s.CONFIG;
 const Level = s.Level;

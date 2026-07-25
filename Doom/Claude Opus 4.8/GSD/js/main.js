@@ -66,6 +66,13 @@ window.addEventListener('load', function () {
   // frame while drawing occluded billboards on top of the walls.
   Raycaster.spritePass = Entities.render;
 
+  // PHASE 5 OVERLAY SEAM: the weapon viewmodel is a SCREEN-SPACE overlay, so it
+  // runs after every world pass through Raycaster.overlayPasses — still inside the
+  // one Raycaster.render() call, still before Game.render's single present(). The
+  // array is ordered; plan 05-04 appends the message line AFTER this so text lands
+  // on top of the gun.
+  Raycaster.overlayPasses.push(Weapons.renderViewmodel);
+
   Game.attach();
 
   // Start the heartbeat. The first frame is a resync frame (dt 0): it skips the

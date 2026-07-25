@@ -44,6 +44,15 @@ const { boot, assert, finish, GAME_DIR } = require('./boot.cjs');
 const h = boot({});
 h.fireLoad();
 
+// Phase-5 (05-02) regression update, the same kind of scoping verify-render applies
+// to the sprite seam. main.js has pushed the weapon viewmodel onto
+// Raycaster.overlayPasses, which draws over the bottom-centre of every frame and
+// would perturb this harness's exact-pixel BILLBOARD assertions. Truncating the
+// array IN PLACE (never reassigning it) removes the overlay from this harness only.
+// The viewmodel's own pixel proofs live in tools/verify-weapons.cjs section 3. No
+// assertion below is weakened — the overlay simply does not run here.
+h.sandbox.Raycaster.overlayPasses.length = 0;
+
 const s = h.sandbox;
 const CONFIG = s.CONFIG;
 const Level = s.Level;

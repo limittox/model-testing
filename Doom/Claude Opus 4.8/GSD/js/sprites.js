@@ -38,7 +38,10 @@ var Sprites = {
   names: ['enemy', 'pickup', 'weapon',
           // Phase 5 (05-CONTEXT D-09): the enemy animation frames the AI picks
           // per frame, plus the enemy's ranged attack projectile.
-          'enemyIdle', 'enemyWalk1', 'enemyWalk2', 'enemyAttack', 'fireball'],
+          'enemyIdle', 'enemyWalk1', 'enemyWalk2', 'enemyAttack', 'fireball',
+          // Phase 5 (05-02): the two weapon VIEWMODELS the overlay pass draws
+          // bottom-centre, plus the muzzle flash composited over the barrel.
+          'weaponPistol', 'weaponShotgun', 'muzzleFlash'],
 
   built: false,
 
@@ -62,7 +65,15 @@ var Sprites = {
     // working byte-for-byte untouched.
     m.enemy = m.enemyIdle;
     m.pickup = Sprites.makePickup(202);
-    m.weapon = Sprites.makeWeapon(303);
+    // Phase 5 (05-02) WEAPON VIEWMODELS. The pistol is registered under its own
+    // NAME now that there are two weapons, and the original 'weapon' key stays a
+    // strict-identity ALIAS for it — the same discipline m.enemy uses for the idle
+    // frame, so every earlier consumer (and every Phase 4 pixel proof) that names
+    // 'weapon' keeps working byte for byte.
+    m.weaponPistol = Sprites.makeWeapon(303);
+    m.weapon = m.weaponPistol;
+    m.weaponShotgun = Sprites.makeShotgun(313);
+    m.muzzleFlash = Sprites.makeMuzzleFlash(323);
     Sprites.map = m;
     Sprites.built = true;
     return m;
@@ -412,6 +423,129 @@ var Sprites = {
       5: [192, 200, 212],  // specular highlight
       6: [18, 18, 22],     // bore
       7: [14, 14, 18]      // rim
+    }, rand);
+
+    return t;
+  };
+
+  // ---------------------------------------------------------------------------
+  // SHOTGUN VIEWMODEL (05-02) — the SAME 96x64 bottom-centre framing and the same
+  // mask-then-colorize style as the pistol, so the two swap in the same drawn box:
+  // a wide DOUBLE BARREL over a pump fore-end, a WOODEN stock/fore-end tone that
+  // reads instantly differently from the pistol's all-metal silhouette, and the
+  // same gloved hands so both weapons belong to one character.
+  // ---------------------------------------------------------------------------
+  Sprites.makeShotgun = function (salt) {
+    var W = 96, H = 64;
+    var t = makeAsset(W, H);
+    var rand = mulberry32(CONFIG.SEED + salt);
+    var m = new Uint8Array(W * H);
+
+    var METAL = 1, DARK = 2, GLOVE = 3, GLOVEDK = 4, HILITE = 5, BORE = 6, RIM = 7,
+        WOOD = 8, WOODDK = 9;
+
+    // Twin barrels receding away from the viewer, muzzles at the top.
+    mrect(m, W, H, 34, 6, 13, 26, METAL);
+    mrect(m, W, H, 49, 6, 13, 26, METAL);
+    mrect(m, W, H, 35, 6, 2, 26, HILITE);   // top-lit edge, left barrel
+    mrect(m, W, H, 50, 6, 2, 26, HILITE);   // top-lit edge, right barrel
+    mrect(m, W, H, 45, 6, 2, 26, DARK);     // shadowed edge, left barrel
+    mrect(m, W, H, 60, 6, 2, 26, DARK);     // shadowed edge, right barrel
+    mrect(m, W, H, 33, 6, 30, 3, DARK);     // one muzzle ring across both bores
+    mrect(m, W, H, 37, 6, 7, 2, BORE);
+    mrect(m, W, H, 52, 6, 7, 2, BORE);
+
+    // Pump fore-end: a broad wooden block clamped under the barrels, grooved.
+    mrect(m, W, H, 30, 28, 36, 12, WOOD);
+    mrect(m, W, H, 30, 28, 36, 1, HILITE);
+    mrect(m, W, H, 30, 37, 36, 3, WOODDK);
+    for (var g = 0; g < 7; g++) mrect(m, W, H, 33 + g * 4, 30, 2, 6, WOODDK);
+
+    // Receiver / trigger housing.
+    mrect(m, W, H, 33, 40, 30, 10, METAL);
+    mrect(m, W, H, 33, 47, 30, 3, DARK);
+    mrect(m, W, H, 33, 40, 30, 1, HILITE);
+
+    // Wooden stock running down out of frame.
+    mrect(m, W, H, 38, 48, 20, 16, WOOD);
+    mrect(m, W, H, 39, 49, 5, 15, WOODDK);
+
+    // Gloved hands: the left one pumps the fore-end (higher, further out), the
+    // right one holds the grip (lower) — same glove materials as the pistol.
+    mellipse(m, W, H, 26, 36, 11, 9, GLOVE);
+    mellipse(m, W, H, 68, 54, 11, 10, GLOVE);
+    mrect(m, W, H, 18, 36, 16, 10, GLOVE);
+    mrect(m, W, H, 58, 54, 18, 10, GLOVE);
+    for (var k = 0; k < 4; k++) {
+      mrect(m, W, H, 21 + k * 4, 32, 1, 6, GLOVEDK);   // knuckle creases
+      mrect(m, W, H, 62 + k * 4, 50, 1, 6, GLOVEDK);
+    }
+    mrect(m, W, H, 31, 30, 5, 8, GLOVE);               // thumbs
+    mrect(m, W, H, 58, 48, 5, 8, GLOVE);
+
+    outline(m, W, H, RIM);
+
+    colorize(t, m, {
+      1: [126, 132, 142],  // metal (shared with the pistol — one gunmetal)
+      2: [58, 62, 70],     // dark metal
+      3: [96, 78, 60],     // glove leather (shared — one character's hands)
+      4: [60, 48, 36],     // glove shadow
+      5: [192, 200, 212],  // specular highlight
+      6: [18, 18, 22],     // bore
+      7: [14, 14, 18],     // rim
+      8: [138, 92, 48],    // WOOD — the shotgun's distinguishing tone
+      9: [92, 58, 28]      // wood shadow / grooves
+    }, rand);
+
+    return t;
+  };
+
+  // ---------------------------------------------------------------------------
+  // MUZZLE FLASH (05-02) — a 48x48 four-point emissive burst composited over the
+  // barrel for CONFIG.MUZZLE_FLASH_TIME after a shot.
+  //
+  // EVERY material is 'flat' (opted OUT of the directional light ramp and the
+  // dither) because a muzzle flash EMITS light — a key-lit flash would read as a
+  // rock — and because flat materials produce a small, EXACT set of packed values,
+  // which is what lets the harness count flash pixels in a rendered frame.
+  //
+  // Deliberately NO outline() call: a dark rim around a flash would read as a hole
+  // punched in the frame. That also gives the asset the property the plan asks for
+  // — alpha is exactly 0 everywhere outside the burst.
+  // ---------------------------------------------------------------------------
+  Sprites.makeMuzzleFlash = function (salt) {
+    var W = 48, H = 48;
+    var t = makeAsset(W, H);
+    var rand = mulberry32(CONFIG.SEED + salt);
+    var m = new Uint8Array(W * H);
+
+    var OUTER = 1, MID = 2, CORE = 3, SPARK = 4;
+    var cx = 24, cy = 24, reach = 22;
+
+    // Two crossing tapered spikes: the taper exponent is what makes them read as
+    // spikes rather than as a diamond.
+    var i, half;
+    for (i = 0; i < reach; i++) {
+      half = Math.max(1, Math.round(9 * Math.pow(1 - i / reach, 1.8)));
+      mrect(m, W, H, cx - half, cy - i, half * 2, 1, OUTER);   // upward spike
+      mrect(m, W, H, cx - half, cy + i, half * 2, 1, OUTER);   // downward spike
+    }
+    for (i = 0; i < reach; i++) {
+      half = Math.max(1, Math.round(9 * Math.pow(1 - i / reach, 1.8)));
+      mrect(m, W, H, cx - i, cy - half, 1, half * 2, OUTER);   // leftward spike
+      mrect(m, W, H, cx + i, cy - half, 1, half * 2, OUTER);   // rightward spike
+    }
+
+    // Concentric hot shells at the centre, innermost last so it wins.
+    mellipse(m, W, H, cx, cy, 11, 11, MID);
+    mellipse(m, W, H, cx, cy, 6, 6, CORE);
+    mellipse(m, W, H, cx, cy, 3, 3, SPARK);
+
+    colorize(t, m, {
+      1: [255, 150, 32, 'flat'],   // outer flame
+      2: [255, 206, 84, 'flat'],   // mid
+      3: [255, 240, 168, 'flat'],  // hot inner
+      4: [255, 255, 246, 'flat']   // white-hot core
     }, rand);
 
     return t;
