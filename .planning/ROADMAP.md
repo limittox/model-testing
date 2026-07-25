@@ -115,14 +115,14 @@ Plans:
   3. Walking over health, armor, ammo, and shotgun pickups collects them and applies the effect (heal to max, armor absorbs a portion of damage, ammo/shells replenished, shotgun granted).
   4. The level is populated with enemy spawns and pickups at designed positions, and a kill count tracks enemies defeated out of the total.
 
-**Plans**: 4 plans (estimated)
+**Plans**: 4 plans
 
 Plans:
 
-- [ ] 05-01: Enemy AI state machine (idle/chase/attack/pain/death) with grid line-of-sight and wall collision
-- [ ] 05-02: Hitscan weapons — pistol (single) + shotgun (multi-pellet spread), DDA wall-stop, ammo cost, viewmodel bob + muzzle flash, weapon switching
-- [ ] 05-03: Enemy damage, hit reaction, death animation + corpse, kill-count tracking
-- [ ] 05-04: Pickups (health/armor/ammo/shotgun) collection + effects; populate the level at designed spawn/item positions
+- [ ] 05-01-PLAN.md — Tracer: enemy AI state machine (idle/chase/attack) with grid line-of-sight, shared per-axis wall collision, pooled fireball projectile, player combat state + armor absorption; enemy walk/attack frames (wave 1)
+- [ ] 05-02-PLAN.md — Hitscan weapons: pistol (single ray) + shotgun (multi-pellet spread), DDA wall-stop, ammo gating, weapon switching, viewmodel bob + recoil + muzzle flash via an ordered overlay seam (wave 2)
+- [ ] 05-03-PLAN.md — Enemy damage response: chance-based pain stagger, multi-frame death animation, non-targetable corpse, kill count out of the spawn-derived total (wave 3)
+- [ ] 05-04-PLAN.md — Pickups (health/armor/ammo/shotgun) collection + effects, message queue + sound hook + framebuffer message line, and the populated level (8 enemies, 9 pickups) (wave 4)
 
 ### Phase 6: HUD, Audio & Game-State Machine
 
@@ -158,5 +158,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 2. Level, Player Movement & Input | 3/3 | In Progress|  |
 | 3. Core Renderer — Walls, Floors & Ceilings | 3/3 | In Progress|  |
 | 4. Sprite Rendering & Entities | 2/2 | In Progress|  |
-| 5. Enemy AI, Weapons & Pickups | 0/4 | Not started | - |
+| 5. Enemy AI, Weapons & Pickups | 0/4 | Planned | - |
 | 6. HUD, Audio & Game-State Machine | 0/3 | Not started | - |
