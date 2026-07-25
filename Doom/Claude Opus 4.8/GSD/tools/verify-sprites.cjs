@@ -673,4 +673,165 @@ function meanShadedBrightness(pose, e, zbuf, cur, W, H) {
     ' < ' + meanNear.mean.toFixed(1) + ') — distant sprites fog like the wall behind them');
 })();
 
+// The raw opaque source texel a sprite maps to a given screen pixel, or 0 if that
+// pixel is outside the sprite's box or maps to a TRANSPARENT texel. Recomputed
+// from the renderer's texel mapping (no call into Entities).
+function opaqueTexelAt(pose, e, W, H, x, y) {
+  const tex = Sprites.map[e.sprite];
+  const TEXW = tex.width, TEXH = tex.height, tb = tex.buf32;
+  const p = projectSprite(pose, e, W, H);
+  if (x < p.drawStartX || x >= p.drawEndX || y < p.drawStartY || y >= p.drawEndY) return 0;
+  let texX = Math.floor((x - p.originX) * TEXW / p.spriteDim);
+  if (texX < 0) texX = 0; else if (texX > TEXW - 1) texX = TEXW - 1;
+  let texY = Math.floor((y - p.originY) * TEXH / p.spriteDim);
+  if (texY < 0) texY = 0; else if (texY > TEXH - 1) texY = TEXH - 1;
+  const packed = tb[texY * TEXW + texX] >>> 0;
+  return ((packed >>> 24) & 0xff) >= Sprites.ALPHA_KEY ? packed : 0;
+}
+
+// ===========================================================================
+// 7. PROOF F — CLEAN TRANSPARENCY / NO HALO (ENT-03, 04-CONTEXT decisions 5+7d).
+//    A single enemy fully in front of a wall (clear LOS, whole box unoccluded) so
+//    the property under test is TRANSPARENCY, not occlusion. Characterise EVERY
+//    in-box pixel WITHOUT relying on value inequality (harness note): an opaque
+//    source texel => the destination equals applyShade(raw, shade) AND is opaque
+//    (alpha 0xFF); a transparent source texel => the destination is byte-for-byte
+//    the background (no fringe written). Non-vacuity control: the box provably
+//    contains BOTH transparent and opaque texels, else the no-halo claim is empty.
+// ===========================================================================
+(function () {
+  const W = Framebuffer.width, H = Framebuffer.height;
+
+  assert(Level.lineOfSight(2.5, 4.5, 6.5, 4.5),
+    '7a. precondition: clear LOS to the enemy so its whole box is visible (isolates transparency)');
+
+  Player.x = 2.5; Player.y = 4.5;
+  Player.setDir(1, 0);
+  const pose = poseOf();
+  const e = { x: 6.5, y: 4.5, sprite: 'enemy', scale: 1.0, onFloor: true };
+  const p = projectSprite(pose, e, W, H);
+
+  Raycaster.spritePass = null; Raycaster.render();
+  const zbuf = Framebuffer.zBuffer.slice();
+
+  // Whole box unoccluded by the wall — so any unchanged pixel is transparency, not
+  // occlusion.
+  let boxUnoccluded = true;
+  for (let x = p.drawStartX; x < p.drawEndX; x++) if (!(p.transformY < zbuf[x])) boxUnoccluded = false;
+  assert(boxUnoccluded,
+    '7b. every column of the sprite box is nearer than the wall (box fully unoccluded)');
+
+  const r = renderBgAndSprites();
+  const shade = Raycaster.shadeFactor(p.transformY, false);
+
+  // Characterise every in-box pixel by the SOURCE alpha (independent recompute).
+  let opaqueCount = 0, transparentCount = 0;
+  let writtenExact = true, writtenOpaque = true, transparentIntact = true;
+  let badWritten = null, badIntact = null;
+  for (let y = p.drawStartY; y < p.drawEndY; y++) {
+    for (let x = p.drawStartX; x < p.drawEndX; x++) {
+      const raw = opaqueTexelAt(pose, e, W, H, x, y);
+      const cur = r.cur[y * W + x] >>> 0;
+      if (raw !== 0) {
+        opaqueCount++;
+        const shaded = Raycaster.applyShade(raw, shade) >>> 0;
+        if (cur !== shaded) { writtenExact = false; if (!badWritten) badWritten = [x, y]; }
+        if (((cur >>> 24) & 0xff) !== 0xff) { writtenOpaque = false; }
+      } else {
+        transparentCount++;
+        if (cur !== (r.bg[y * W + x] >>> 0)) { transparentIntact = false; if (!badIntact) badIntact = [x, y]; }
+      }
+    }
+  }
+
+  assert(opaqueCount > 0 && transparentCount > 0,
+    '7c. CONTROL (non-vacuity): the box contains BOTH opaque (' + opaqueCount + ') and transparent (' +
+    transparentCount + ') source texels — the no-halo proof is not vacuous');
+  assert(writtenExact,
+    '7d. ENT-03: every OPAQUE-source pixel === applyShade(raw, shade)' +
+    (writtenExact ? '' : ' — mismatch at ' + JSON.stringify(badWritten)));
+  assert(writtenOpaque,
+    '7e. ENT-03: every written sprite pixel is fully opaque (alpha byte 0xFF)');
+  assert(transparentIntact,
+    '7f. ENT-03 NO HALO: every TRANSPARENT-source pixel left the background byte-for-byte intact' +
+    (transparentIntact ? '' : ' — fringe written at ' + JSON.stringify(badIntact)));
+})();
+
+// ===========================================================================
+// 8. PROOF G — BACK-TO-FRONT SORT OVERLAP (ENT-02, 04-CONTEXT decision 7c). Two
+//    enemies on the SAME bearing (straight ahead on open row 4) at different
+//    distances so their boxes overlap on screen (the far box is inside the near
+//    box). Where BOTH would draw an opaque texel, the NEARER enemy's texel must
+//    win. Falsifiability control: keep the positions but SWAP the list order — the
+//    NEARER enemy still wins, proving layering follows the far->near distance sort
+//    and not the draw sequence in the list. Also confirm Entities._order is sorted
+//    by DESCENDING squared distance for the injected pair.
+// ===========================================================================
+(function () {
+  const W = Framebuffer.width, H = Framebuffer.height;
+
+  assert(Level.lineOfSight(2.5, 4.5, 6.5, 4.5) && Level.lineOfSight(2.5, 4.5, 10.5, 4.5),
+    '8a. precondition: clear LOS to both the near (d=4) and far (2d=8) enemy (no wall between)');
+
+  Player.x = 2.5; Player.y = 4.5;
+  Player.setDir(1, 0);
+  const pose = poseOf();
+  const nearObj = { x: 6.5,  y: 4.5, sprite: 'enemy', scale: 1.0, onFloor: true };
+  const farObj  = { x: 10.5, y: 4.5, sprite: 'enemy', scale: 1.0, onFloor: true };
+  const pNear = projectSprite(pose, nearObj, W, H);
+  const pFar = projectSprite(pose, farObj, W, H);
+  const shadeNear = Raycaster.shadeFactor(pNear.transformY, false);
+
+  Raycaster.spritePass = null; Raycaster.render();
+  const zbuf = Framebuffer.zBuffer.slice();
+
+  // Contest pixels: inside the (smaller) far box, BOTH enemies map to an opaque
+  // texel, and the wall does not occlude the column. There the nearer must win.
+  const contest = [];
+  for (let y = pFar.drawStartY; y < pFar.drawEndY; y++) {
+    for (let x = pFar.drawStartX; x < pFar.drawEndX; x++) {
+      if (!(pNear.transformY < zbuf[x])) continue;
+      const nRaw = opaqueTexelAt(pose, nearObj, W, H, x, y);
+      const fRaw = opaqueTexelAt(pose, farObj, W, H, x, y);
+      if (nRaw !== 0 && fRaw !== 0) contest.push([x, y, nRaw]);
+    }
+  }
+  assert(contest.length > 0,
+    '8b. the two boxes overlap with ' + contest.length + ' contested pixels (both enemies opaque there)');
+
+  // Case A — list order [near, far]. The nearer must win despite being FIRST in
+  // the list (naive list-order draw would put far on top; the sort prevents that).
+  setEntities([nearObj, farObj]);
+  let r = renderBgAndSprites();
+  let nearWinsA = true, badA = null;
+  for (const [x, y, nRaw] of contest) {
+    const shaded = Raycaster.applyShade(nRaw, shadeNear) >>> 0;
+    if ((r.cur[y * W + x] >>> 0) !== shaded) { nearWinsA = false; badA = [x, y]; break; }
+  }
+  assert(nearWinsA,
+    '8c. ENT-02: at every contested pixel the NEARER enemy texel wins (list order [near,far])' +
+    (nearWinsA ? '' : ' — lost at ' + JSON.stringify(badA)));
+
+  // Entities._order must be sorted by DESCENDING dist2 (far first) for the pair.
+  const ord = Entities._order, d2 = Entities._dist2;
+  assert(d2[ord[0]] >= d2[ord[1]],
+    '8d. Entities._order is far->near (dist2 desc): dist2[order0]=' + d2[ord[0]].toFixed(1) +
+    ' >= dist2[order1]=' + d2[ord[1]].toFixed(1));
+  assert(Entities.list[ord[0]] === farObj && Entities.list[ord[1]] === nearObj,
+    '8e. the sort placed the FAR enemy first and the NEAR enemy last (drawn last = on top)');
+
+  // Case B — CONTROL: SWAP the list order to [far, near], same positions. The
+  // nearer must STILL win, proving distance (not list index) determines layering.
+  setEntities([farObj, nearObj]);
+  r = renderBgAndSprites();
+  let nearWinsB = true, badB = null;
+  for (const [x, y, nRaw] of contest) {
+    const shaded = Raycaster.applyShade(nRaw, shadeNear) >>> 0;
+    if ((r.cur[y * W + x] >>> 0) !== shaded) { nearWinsB = false; badB = [x, y]; break; }
+  }
+  assert(nearWinsB,
+    '8f. CONTROL: with the list order SWAPPED to [far,near] the NEARER enemy STILL wins — ' +
+    'layering follows the far->near sort, not list order' + (nearWinsB ? '' : ' — lost at ' + JSON.stringify(badB)));
+})();
+
 finish('ALL_SPRITE_CONTRACTS_PASS');
