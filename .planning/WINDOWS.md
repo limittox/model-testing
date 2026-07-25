@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 5
+open_count: 7
 waived_count: 0
 fixed_count: 0
-total_count: 5
-last_updated: 2026-07-25T05:20:53.232Z
+total_count: 7
+last_updated: 2026-07-25T06:45:23.952Z
 ---
 
 # Broken Windows Ledger
@@ -20,6 +20,8 @@ last_updated: 2026-07-25T05:20:53.232Z
 | 3 | 05 | deviation | Doom/Claude Opus 4.8/GSD/js/enemies.js |  | ENEM-04/ENEM-05 gap: hurt() sets the death state but the pain reaction, death animation, corpse and kill count are plan 05-03; an enemy in the death state falls through the state switch | open |  | 2026-07-25T03:36:47.001Z |  |
 | 4 | 05 | stub | Doom/Claude Opus 4.8/GSD/js/sound.js |  | Sound.play(name) is a RECORDING HOOK, not audio: it records the event and returns, creating no AudioContext. Intentional per the 05-CONTEXT phase boundary (audio is Phase 6 AUD-01/02/03, which replaces the body with Web Audio synthesis and adds the firing/enemy-death/player-damage call sites). Only the PICK-05 pickup call site is wired. | open |  | 2026-07-25T05:20:52.542Z |  |
 | 5 | 05 | unrun-verify | Doom/Claude Opus 4.8/GSD/index.html |  | 05-04: real-browser play-test of the full combat loop (walk the populated level, fight, take damage, collect health/armor/ammo/shotgun, watch the message appear and fade, confirm collected items vanish and cannot be retaken) from file:// and a static server with zero console/network errors — delegated to the orchestrator's browser pass; a headless proxy driving Game.step(0.016)+render+present is green | open |  | 2026-07-25T05:20:53.232Z |  |
+| 6 | 06 | stub | Doom/Claude Opus 4.8/GSD/js/hud.js |  | HUD.render draws nothing in the playing state — 06-02 fills the status bar/crosshair/minimap/damage flash branch | open |  | 2026-07-25T06:45:23.371Z |  |
+| 7 | 06 | stub | Doom/Claude Opus 4.8/GSD/js/sound.js |  | Sound.unlock() only counts the call and returns false — 06-03 replaces the body with the AudioContext construction and resume | open |  | 2026-07-25T06:45:23.952Z |  |
 
 ````json
 [
@@ -81,6 +83,30 @@ last_updated: 2026-07-25T05:20:53.232Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-07-25T05:20:53.232Z",
+    "resolved_at": null
+  },
+  {
+    "id": 6,
+    "kind": "stub",
+    "phase": "06",
+    "file": "Doom/Claude Opus 4.8/GSD/js/hud.js",
+    "line": null,
+    "description": "HUD.render draws nothing in the playing state — 06-02 fills the status bar/crosshair/minimap/damage flash branch",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-07-25T06:45:23.371Z",
+    "resolved_at": null
+  },
+  {
+    "id": 7,
+    "kind": "stub",
+    "phase": "06",
+    "file": "Doom/Claude Opus 4.8/GSD/js/sound.js",
+    "line": null,
+    "description": "Sound.unlock() only counts the call and returns false — 06-03 replaces the body with the AudioContext construction and resume",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-07-25T06:45:23.952Z",
     "resolved_at": null
   }
 ]
