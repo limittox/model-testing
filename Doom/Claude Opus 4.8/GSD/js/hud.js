@@ -41,24 +41,32 @@
  *     kill counts and the whole-second time).
  *
  * ============================================================================
- * BOUNDARY (this plan, 06-01)
+ * WHAT THIS FILE OWNS (06-01 built the screens; 06-02 built the in-game overlay)
  * ============================================================================
- * This file owns the THREE FULL-SCREEN STATE SCREENS and nothing else. In the
- * PLAYING state HUD.render draws NOTHING AT ALL — plan 06-02 fills that in with
- * the status bar, the crosshair, the minimap and the damage flash.
+ *   . THE THREE FULL-SCREEN STATE SCREENS — title, victory, death (06-01).
+ *   . THE IN-GAME OVERLAY (06-02): the bottom status bar (health, armor, the ammo
+ *     for the weapon in hand, the weapon name, the kill tally), the centre
+ *     crosshair, the corner minimap, and the red damage flash.
+ * The two are mutually exclusive by construction — HUD.render dispatches on
+ * Game.state, so exactly one of them paints on any given frame (D-06).
  *
  * IT ADDS NO MESSAGE RENDERER (06-CONTEXT D-02, resolved). Game.renderMessage
  * stays registered in Raycaster.overlayPasses as the ONE AND ONLY renderer of the
  * event line. Adding a second one here is exactly the double-draw the decision
  * exists to prevent; tools/verify-state.cjs section 4 is the gate that keeps it
- * that way as 06-02 builds on this file.
+ * that way, and tools/verify-hud.cjs section 3 extends that gate to 06-02's
+ * weapon-switch and out-of-ammo event messages.
  */
 
 var HUD = {
-  // The screen name drawn by the last HUD.render(), or null when it drew none
-  // (the playing state, or a missing/degenerate overlay context). Recorded rather
+  // The screen name drawn by the last HUD.render(), or null when it drew none (a
+  // missing or degenerate overlay context, or an unknown state). Recorded rather
   // than inferred so a harness can ask what was painted without re-deriving the
   // state dispatch. Same discipline as Game.messageBox and Weapons.viewmodelBox.
+  //
+  // 06-02 NOTE: this now reads Game.STATES.PLAYING on a playing frame. In 06-01 it
+  // was null there, because the playing branch deliberately drew nothing; that
+  // branch now paints the in-game overlay, so recording null would be a lie.
   screen: null,
 
   // Frames on which a repaint actually happened. Monotonic until reset().
@@ -71,10 +79,24 @@ var HUD = {
     w: 0,        // hud canvas width, display pixels
     h: 0,        // hud canvas height, display pixels
     cx: 0,       // horizontal centre — every screen is centre-aligned
+    cy: 0,       // vertical centre — the crosshair's anchor (HUD-03)
     heading: 0,  // heading text size, px
     body: 0,     // body text size, px
     prompt: 0,   // prompt text size, px
-    line: 0      // baseline-to-baseline spacing for stacked lines, px
+    line: 0,     // baseline-to-baseline spacing for stacked lines, px
+
+    // --- The in-game overlay (06-02). Same record, same rule: recomputed IN
+    // PLACE from the LIVE canvas size every frame, never reallocated. ---
+    inset: 0,    // the shared edge inset, px
+    barX: 0,     // the status bar rectangle
+    barY: 0,
+    barW: 0,
+    barH: 0,
+    colW: 0,     // one readout column's width (barW / the readout count)
+    label: 0,    // label text size, px
+    value: 0,    // value text size, px
+    labelY: 0,   // the label row's centre line inside the bar
+    valueY: 0    // the value row's centre line inside the bar
   }
 };
 
@@ -133,7 +155,10 @@ var HUD = {
   // ticks. Both are module-scope records mutated in place, never reallocated.
   // ===========================================================================
 
-  var fonts = { h: -1, heading: '', body: '', prompt: '' };
+  // The `label` and `value` entries are 06-02's additions — the status bar's two
+  // text sizes. They are keyed on the SAME canvas height as the screen fonts, so
+  // one height change rebuilds all five strings and nothing else ever does.
+  var fonts = { h: -1, heading: '', body: '', prompt: '', label: '', value: '' };
 
   function updateFonts(h) {
     if (fonts.h === h) return;
@@ -142,6 +167,8 @@ var HUD = {
     fonts.heading = Math.round(CONFIG.SCREEN_HEADING_FRAC * h) + 'px ' + family;
     fonts.body = Math.round(CONFIG.SCREEN_BODY_FRAC * h) + 'px ' + family;
     fonts.prompt = Math.round(CONFIG.SCREEN_PROMPT_FRAC * h) + 'px ' + family;
+    fonts.label = Math.round(CONFIG.HUD_LABEL_FRAC * h) + 'px ' + family;
+    fonts.value = Math.round(CONFIG.HUD_VALUE_FRAC * h) + 'px ' + family;
   }
 
   var stats = { kills: -1, total: -1, secs: -1, killsText: '', timeText: '' };
@@ -223,6 +250,237 @@ var HUD = {
   }
 
   // ===========================================================================
+  // ===========================================================================
+  // THE IN-GAME OVERLAY (plan 06-02) — HUD-01, HUD-02, HUD-03, HUD-06.
+  //
+  // Five phases of simulation produce health, armor, ammo, a weapon and a kill
+  // tally that the player cannot see. Everything below turns that state into
+  // feedback, and it does so by READING THE LIVE OBJECTS the simulation mutates —
+  // Combat and Game — with no HUD-local copy of any stat anywhere. A cached
+  // readout is a readout that can go stale and lie (threat T-06-09); the only
+  // things cached here are the derived STRINGS, keyed on the values they came
+  // from, because the Canvas 2D text API takes strings and nothing else.
+  // ===========================================================================
+  // ===========================================================================
+
+  // THE FIVE STATUS-BAR COLUMNS, LEFT TO RIGHT (D-03). Data, in layout order, so
+  // "which readout is which" is one ordering in one place rather than five
+  // hand-placed draw calls that can drift out of step with each other.
+  var READOUT_LABELS = ['HEALTH', 'ARMOR', 'AMMO', 'WEAPON', 'KILLS'];
+  var READOUTS = READOUT_LABELS.length;
+
+  // Combat.weapon -> the display name. A TABLE, not a chain of comparisons: a
+  // third weapon is a one-line data edit here and every readout picks it up.
+  var WEAPON_NAMES = { pistol: 'PISTOL', shotgun: 'SHOTGUN' };
+
+  // THE READOUT STRING CACHE — the third cache in this file, and it exists for
+  // exactly the reason the other two do: `'' + health` allocates a string, and
+  // doing that five times a frame is 300 strings a second of pure garbage. Keyed
+  // on EVERY value it derives from, so any change to any stat rebuilds the row and
+  // nothing else can.
+  var bar = {
+    health: -1, armor: -1, ammo: -1, weapon: '', kills: -1, total: -1,
+    values: ['', '', '', '', '']
+  };
+
+  function updateReadouts(health, armor, ammo, weapon, kills, total) {
+    if (bar.health === health && bar.armor === armor && bar.ammo === ammo &&
+        bar.weapon === weapon && bar.kills === kills && bar.total === total) return;
+    bar.health = health;
+    bar.armor = armor;
+    bar.ammo = ammo;
+    bar.weapon = weapon;
+    bar.kills = kills;
+    bar.total = total;
+    var v = bar.values;
+    v[0] = '' + health;
+    v[1] = '' + armor;
+    v[2] = '' + ammo;
+    // An unknown weapon still reads out as something rather than 'undefined'.
+    v[3] = WEAPON_NAMES[weapon] || String(weapon).toUpperCase();
+    v[4] = kills + ' / ' + total;
+  }
+
+  // THE AMMO READOUT RESOLVES ITS FIELD THROUGH Weapons.TABLE (HUD-01, threat
+  // T-06-09). The table entry for the weapon in hand names the Combat.ammo field
+  // that FIRING ACTUALLY SPENDS, so the number on the bar and the number the
+  // trigger decrements are the same number by construction — there is no second
+  // opinion about which weapon uses which ammo, and switching weapons moves the
+  // readout for free. A chain of `if (weapon === 'shotgun')` comparisons here is
+  // exactly how a HUD ends up showing bullets while a shotgun eats shells.
+  function ammoInHand() {
+    var table = (typeof Weapons !== 'undefined' && Weapons) ? Weapons.TABLE : null;
+    var entry = table ? table[Combat.weapon] : null;
+    if (!entry) return 0;
+    var n = Combat.ammo ? Combat.ammo[entry.ammo] : 0;
+    return (typeof n === 'number' && isFinite(n)) ? n : 0;
+  }
+  HUD.ammoInHand = ammoInHand;
+
+  // ---------------------------------------------------------------------------
+  // THE STATUS BAR (HUD-01 / HUD-02) — a translucent backing rectangle and five
+  // labelled columns across it.
+  //
+  // EACH COLUMN DRAWS ITS LABEL AND THEN ITS VALUE, in that order, and that
+  // ordering is part of the contract: it makes the recorded call sequence
+  // self-describing (label, value, label, value, ...), so a harness can PAIR each
+  // value with the label above it instead of guessing which number is which.
+  // ---------------------------------------------------------------------------
+  function drawStatusBar(ctx, m) {
+    ctx.globalAlpha = CONFIG.HUD_BAR_ALPHA;
+    ctx.fillStyle = CONFIG.HUD_BAR_COLOR;
+    ctx.fillRect(m.barX, m.barY, m.barW, m.barH);
+    ctx.globalAlpha = 1;
+
+    var health = Combat.health;
+    updateReadouts(health, Combat.armor, ammoInHand(), Combat.weapon,
+      Game.kills, Game.totalKills);
+
+    // ONE COMPARISON, not a gradient (see CONFIG.HUD_WARN_FRAC).
+    var warn = (Combat.maxHealth > 0) &&
+      (health < CONFIG.HUD_WARN_FRAC * Combat.maxHealth);
+
+    for (var i = 0; i < READOUTS; i++) {
+      var cx = m.barX + m.colW * (i + 0.5);
+      ctx.font = fonts.label;
+      ctx.fillStyle = CONFIG.HUD_LABEL_COLOR;
+      ctx.fillText(READOUT_LABELS[i], cx, m.labelY);
+      ctx.font = fonts.value;
+      ctx.fillStyle = (i === 0 && warn) ? CONFIG.HUD_WARN_COLOR : CONFIG.HUD_VALUE_COLOR;
+      ctx.fillText(bar.values[i], cx, m.valueY);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // THE CROSSHAIR (HUD-03) — two rectangles derived from the LIVE canvas midpoint,
+  // so it recentres on a resize for free rather than needing a resize hook.
+  //
+  // The horizontal arm spans [cx - arm, cx + arm] and the vertical arm spans
+  // [cy - arm, cy + arm], so the drawn extent is symmetric about the midpoint by
+  // construction — not by arithmetic that happens to come out even. The darker
+  // one-pixel-larger cross underneath is the same trick the message line's drop
+  // shadow uses: it keeps the aim point visible against a brightly lit wall
+  // without a second asset or any partial alpha.
+  // ---------------------------------------------------------------------------
+  function drawCrosshair(ctx, m) {
+    var arm = Math.round(CONFIG.HUD_CROSSHAIR_ARM_FRAC * m.h);
+    if (arm < 2) arm = 2;
+    var th = Math.round(CONFIG.HUD_CROSSHAIR_THICK_FRAC * m.h);
+    if (th < 1) th = 1;
+    var half = th >> 1;
+    var cx = Math.round(m.cx);
+    var cy = Math.round(m.cy);
+
+    ctx.fillStyle = CONFIG.HUD_CROSSHAIR_OUTLINE_COLOR;
+    ctx.fillRect(cx - arm - 1, cy - half - 1, 2 * arm + 2, th + 2);
+    ctx.fillRect(cx - half - 1, cy - arm - 1, th + 2, 2 * arm + 2);
+
+    ctx.fillStyle = CONFIG.HUD_CROSSHAIR_COLOR;
+    ctx.fillRect(cx - arm, cy - half, 2 * arm, th);
+    ctx.fillRect(cx - half, cy - arm, th, 2 * arm);
+  }
+
+  // ---------------------------------------------------------------------------
+  // THE DAMAGE FLASH (HUD-06) — the current alpha of the red wash, or 0.
+  //
+  // BOTH OPERANDS ARE SIMULATION TIME. Combat.lastDamageAt is stamped from
+  // Game.time inside Combat.damagePlayer, and Game.time is accumulated inside
+  // Game.step — so the flash freezes with the sim on an end screen, ages under a
+  // direct Game.step(dt) in a harness, and is measurable headlessly. A wall-clock
+  // flash would decay behind the victory screen and could not be proved at all.
+  //
+  // EVERY DEGENERATE CASE FAILS TO "NO FLASH", never to a stuck full-alpha wash
+  // the player has to look through for the rest of the run: the never-damaged
+  // sentinel (-1) and NaN are both rejected by `!(at >= 0)`, a negative age (a
+  // stamp in the future of a clock that went backwards) by `!(age >= 0)`.
+  // ---------------------------------------------------------------------------
+  function flashAlpha() {
+    var life = CONFIG.DAMAGE_FLASH_TIME;
+    if (!(life > 0)) return 0;
+    var at = (typeof Combat !== 'undefined') ? Combat.lastDamageAt : -1;
+    if (!(at >= 0)) return 0;
+    var now = (typeof Game !== 'undefined') ? Game.time : 0;
+    var age = now - at;
+    if (!(age >= 0) || age >= life) return 0;
+    var a = CONFIG.DAMAGE_FLASH_ALPHA * (1 - age / life);
+    return (a > 0) ? a : 0;
+  }
+  HUD.flashAlpha = flashAlpha;
+
+  function drawDamageFlash(ctx, m) {
+    var a = flashAlpha();
+    if (!(a > 0)) return false;
+    ctx.globalAlpha = a;
+    ctx.fillStyle = CONFIG.DAMAGE_FLASH_COLOR;
+    ctx.fillRect(0, 0, m.w, m.h);
+    // RESTORED IMMEDIATELY — the context is shared with everything else drawn
+    // here, and a leaked alpha would tint the whole bar for the rest of the frame.
+    ctx.globalAlpha = 1;
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // RENDER THE PLAYING OVERLAY. Called by HUD.render in the playing state.
+  //
+  // ORDER IS DELIBERATE: the damage flash goes down FIRST, so the readouts and the
+  // crosshair sit ON TOP of it — the one moment a player most needs to read their
+  // health is the moment the screen has just gone red.
+  //
+  // ALLOCATES NOTHING. No array, no object, no closure: the labels and the weapon
+  // names are module-scope data, the values come out of the keyed cache above, and
+  // the geometry is recomputed in place into the one METRICS record.
+  // ---------------------------------------------------------------------------
+  HUD.renderPlaying = function (ctx, m) {
+    if (!ctx) ctx = (typeof Framebuffer !== 'undefined') ? Framebuffer.hudCtx : null;
+    if (!ctx) return false;
+    if (!m) m = HUD.METRICS;
+
+    drawDamageFlash(ctx, m);
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    drawStatusBar(ctx, m);
+    drawCrosshair(ctx, m);
+    return true;
+  };
+
+  // ===========================================================================
+  // THE LAYOUT — every field of the ONE metrics record, recomputed IN PLACE from
+  // the LIVE canvas size. Called once per frame, before the state dispatch, so the
+  // screens and the in-game overlay are laid out on the same grid and a window
+  // resize is picked up by both without a resize handler anywhere.
+  // ===========================================================================
+  function updateMetrics(w, h) {
+    var m = HUD.METRICS;
+    m.w = w;
+    m.h = h;
+    m.cx = w * 0.5;
+    m.cy = h * 0.5;
+
+    m.heading = Math.round(CONFIG.SCREEN_HEADING_FRAC * h);
+    m.body = Math.round(CONFIG.SCREEN_BODY_FRAC * h);
+    m.prompt = Math.round(CONFIG.SCREEN_PROMPT_FRAC * h);
+    m.line = Math.round(CONFIG.SCREEN_LINE_FRAC * h);
+
+    var inset = Math.round(CONFIG.HUD_BAR_INSET_FRAC * h);
+    m.inset = inset;
+    m.barH = Math.round(CONFIG.HUD_BAR_HEIGHT_FRAC * h);
+    if (m.barH < 1) m.barH = 1;
+    m.barX = inset;
+    m.barW = w - inset * 2;
+    if (m.barW < 1) m.barW = 1;
+    m.barY = h - inset - m.barH;
+    if (m.barY < 0) m.barY = 0;
+    m.colW = m.barW / READOUTS;
+    m.label = Math.round(CONFIG.HUD_LABEL_FRAC * h);
+    m.value = Math.round(CONFIG.HUD_VALUE_FRAC * h);
+    // The two text rows sit at fixed fractions of the bar's own height, so they
+    // stay inside it at every window size.
+    m.labelY = m.barY + m.barH * 0.30;
+    m.valueY = m.barY + m.barH * 0.70;
+  }
+
+  // ===========================================================================
   // RENDER — called by Game.render AFTER Framebuffer.present(), every frame,
   // in every state.
   //
@@ -251,22 +509,23 @@ var HUD = {
     var S = Game.STATES;
     var state = Game.state;
 
-    // THE PLAYING STATE DRAWS NOTHING IN THIS PLAN. Not an oversight and not a
-    // stub that breaks anything: the frame is already complete without it. Plan
-    // 06-02 fills this branch with the status bar, crosshair, minimap and damage
-    // flash. The clearRect above has already run, so 06-02 inherits a clean
-    // surface and the repaint-every-frame contract for free.
-    if (state === S.PLAYING) return false;
-
+    // THE LAYOUT IS COMPUTED ONCE, BEFORE THE DISPATCH, for every state — so the
+    // screens and the in-game overlay are laid out on the same grid from the same
+    // live canvas size, and neither can be looking at stale geometry after a
+    // resize.
     var m = HUD.METRICS;
-    m.w = w;
-    m.h = h;
-    m.cx = w * 0.5;
-    m.heading = Math.round(CONFIG.SCREEN_HEADING_FRAC * h);
-    m.body = Math.round(CONFIG.SCREEN_BODY_FRAC * h);
-    m.prompt = Math.round(CONFIG.SCREEN_PROMPT_FRAC * h);
-    m.line = Math.round(CONFIG.SCREEN_LINE_FRAC * h);
+    updateMetrics(w, h);
     updateFonts(h);
+
+    // THE PLAYING STATE (06-02): the status bar, the crosshair, the minimap and the
+    // damage flash — and DELIBERATELY NO SCRIM and no message text. The scrim's job
+    // is to push the frozen world back behind a menu; while playing, the world IS
+    // the thing being looked at.
+    if (state === S.PLAYING) {
+      HUD.renderPlaying(ctx, m);
+      HUD.screen = S.PLAYING;
+      return true;
+    }
 
     scrim(ctx, m);
     ctx.textAlign = 'center';
@@ -319,6 +578,18 @@ var HUD = {
     stats.secs = -1;
     stats.killsText = '';
     stats.timeText = '';
+
+    // The readout cache is invalidated the same way and for the same reason: the
+    // next playing frame must rebuild its row from the LIVE stats rather than
+    // trusting strings derived from the run that just ended.
+    bar.health = -1;
+    bar.armor = -1;
+    bar.ammo = -1;
+    bar.weapon = '';
+    bar.kills = -1;
+    bar.total = -1;
+    for (var i = 0; i < bar.values.length; i++) bar.values[i] = '';
+
     return HUD;
   };
 
@@ -331,5 +602,10 @@ var HUD = {
   HUD.DEAD_HEADING = DEAD_HEADING;
   HUD.DEAD_PROMPT = DEAD_PROMPT;
   HUD.CONTROLS = CONTROLS;
+  // 06-02's data, exposed for the same reason: a harness asserts against the exact
+  // labels and display names rather than re-typing them, so a rename cannot leave a
+  // stale expectation passing.
+  HUD.READOUT_LABELS = READOUT_LABELS;
+  HUD.WEAPON_NAMES = WEAPON_NAMES;
 
 })();

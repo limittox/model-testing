@@ -363,5 +363,66 @@ var CONFIG = {
   // no network fetch: the self-containment gate (no runtime loads, runs from
   // file://) is untouched. The monospace families come first so the stat columns
   // line up; the generic keyword is the guaranteed fallback.
-  SCREEN_FONT_FAMILY: '"Courier New", Courier, monospace'
+  SCREEN_FONT_FAMILY: '"Courier New", Courier, monospace',
+
+  // ===========================================================================
+  // PHASE 6 — THE IN-GAME OVERLAY: STATUS BAR, CROSSHAIR, DAMAGE FLASH
+  // (06-CONTEXT D-03; plan 06-02. Same discipline as the SCREEN_* block above:
+  // CSS colour STRINGS on the #hud 2D context, and EVERY SIZE IS A FRACTION OF
+  // THE HUD CANVAS HEIGHT so the bar is proportionate in a 600px window and on a
+  // 4K display alike. js/hud.js multiplies each fraction by the live canvas
+  // height every frame — there is not one pixel count in that file.)
+  // ===========================================================================
+
+  // --- The bottom status bar (HUD-01 / HUD-02) ------------------------------
+  // HUD_BAR_HEIGHT_FRAC: the bar's total height. Two stacked text rows (a small
+  // label over a larger value) have to fit inside it, so it is bounded BELOW by
+  // HUD_LABEL_FRAC + HUD_VALUE_FRAC (0.058) with room for the leading — and
+  // bounded above by taste: much more than a tenth of the screen and the bar
+  // starts eating the world it is reporting on.
+  HUD_BAR_HEIGHT_FRAC: 0.085,
+  // The gap between the bar and the bottom/side edges of the viewport.
+  HUD_BAR_INSET_FRAC: 0.014,
+  HUD_LABEL_FRAC: 0.020,       // the small caps label (HEALTH, ARMOR, ...)
+  HUD_VALUE_FRAC: 0.038,       // the number or name under it
+  // The bar backing. A REAL partial alpha, legitimate on the compositing 2D
+  // overlay (unlike the framebuffer's binary alpha key): the world stays faintly
+  // visible through the bar rather than being replaced by a black band.
+  HUD_BAR_COLOR: '#05070c',
+  HUD_BAR_ALPHA: 0.58,
+  HUD_LABEL_COLOR: '#8d8676',   // dimmer than the value — the value is the datum
+  HUD_VALUE_COLOR: '#d8d2c4',
+  // THE LOW-HEALTH WARNING is ONE COMPARISON, not a gradient: health strictly
+  // below this fraction of Combat.maxHealth draws in the warning colour. A ramp
+  // would be prettier and unfalsifiable; a threshold is a claim a harness can
+  // straddle from both sides.
+  HUD_WARN_COLOR: '#c8302a',
+  HUD_WARN_FRAC: 0.30,
+
+  // --- The crosshair (HUD-03) ----------------------------------------------
+  // Arm length and thickness as fractions of the canvas height. The cross is
+  // built from two rectangles derived from the LIVE canvas midpoint every frame,
+  // so it recentres on a resize for free.
+  HUD_CROSSHAIR_ARM_FRAC: 0.014,
+  HUD_CROSSHAIR_THICK_FRAC: 0.0035,
+  HUD_CROSSHAIR_COLOR: '#e6e0cc',
+  // The one-pixel-larger darker cross drawn UNDERNEATH, so the crosshair reads
+  // against a brightly lit wall as well as against a dark corridor — the same
+  // reasoning as the message line's drop shadow, and for the same reason it needs
+  // no second asset and no partial alpha.
+  HUD_CROSSHAIR_OUTLINE_COLOR: '#0b0d12',
+
+  // --- The damage flash (HUD-06) -------------------------------------------
+  // DAMAGE_FLASH_TIME: how long the red wash takes to decay to nothing, in
+  // SIMULATION seconds. Both operands of the age (Game.time and
+  // Combat.lastDamageAt) are simulation time, so the flash freezes with the sim
+  // and is measurable headlessly — which is the whole reason it is not a
+  // wall-clock timer.
+  DAMAGE_FLASH_TIME: 0.3,
+  // DAMAGE_FLASH_ALPHA: the PEAK alpha, at the instant of the hit, ramping
+  // linearly to 0 across DAMAGE_FLASH_TIME. Deliberately kept well below 1: the
+  // player is being shot at, and a wash they cannot see through is a wash that
+  // gets them killed by the next fireball. Under half is the readability bound.
+  DAMAGE_FLASH_ALPHA: 0.42,
+  DAMAGE_FLASH_COLOR: '#c81410'
 };
