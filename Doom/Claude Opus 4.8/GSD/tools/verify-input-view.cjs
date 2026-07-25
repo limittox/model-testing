@@ -194,9 +194,14 @@ assert(near(Game.dt, 0, 1e-12) && Game.resync === false,
   h.dispatch('document', 'mousemove', { movementX: 100 });
   step(16);
   const rot1 = angleDiff(a0, dirAngle());
-  const expected = 100 * SENS;
+  // SIGN CORRECTED (mouse-inversion bug): a rightward mouse (positive movementX)
+  // must swing the view RIGHT, and screen-right is NEGATIVE rotation because the
+  // camera plane maps screen-right to -y (see Player.rotate's sign note). This
+  // assertion previously expected +100*SENS, which codified the inverted bug as
+  // correct. The MAGNITUDE claim (exactly |movementX|*SENS) is unchanged.
+  const expected = -100 * SENS;
   assert(near(rot1, expected, 1e-6),
-    '6a. a pointer-locked mousemove of 100 rotates right by exactly 100*MOUSE_SENSITIVITY');
+    '6a. a pointer-locked mousemove of +100 rotates RIGHT by exactly 100*MOUSE_SENSITIVITY');
 
   const a1 = dirAngle();
   step(16); // no mouse event this frame

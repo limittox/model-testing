@@ -224,8 +224,11 @@ heading('CRITERION 2: mouse-look under lock / arrow-key fallback / lock hygiene'
   let a0 = dirAngle();
   h.dispatch('document', 'mousemove', { movementX: 60 });
   step(16);
-  assert(near(angleDiff(a0, dirAngle()), 60 * SENS, 1e-6),
-    '2.1 under pointer lock, a mousemove turns the camera by movementX * MOUSE_SENSITIVITY');
+  // SIGN CORRECTED (mouse-inversion bug): positive movementX must turn RIGHT,
+  // which is a NEGATIVE rotation (screen-right maps to -y via the camera plane).
+  // Previously expected +60*SENS, codifying the inverted bug. Magnitude unchanged.
+  assert(near(angleDiff(a0, dirAngle()), -60 * SENS, 1e-6),
+    '2.1 under pointer lock, a mousemove turns the camera RIGHT by movementX * MOUSE_SENSITIVITY');
 
   // The click handler requests lock (gesture-scoped, not requested at load).
   const la0 = Input.lockAttempts;
@@ -258,8 +261,11 @@ heading('CRITERION 2: mouse-look under lock / arrow-key fallback / lock hygiene'
   for (let i = 0; i < 60; i++) step(1000 / 60);
   h.dispatch('window', 'keyup', { code: 'ArrowRight' });
   const rotRight = angleDiff(a0, dirAngle());
-  assert(near(rotLeft, -TURN, 1e-6) && near(rotRight, TURN, 1e-6),
-    '2.4 unlocked: ArrowLeft rotates -TURN_SPEED and ArrowRight +TURN_SPEED over one second (1e-6)');
+  // SIGN CORRECTED (turn-inversion bug): ArrowRight must swing the view RIGHT,
+  // which is a NEGATIVE rotation, and ArrowLeft positive. The signs here were the
+  // wrong way round, codifying the inverted bug as correct. Magnitudes unchanged.
+  assert(near(rotLeft, TURN, 1e-6) && near(rotRight, -TURN, 1e-6),
+    '2.4 unlocked: ArrowRight rotates RIGHT (-TURN_SPEED) and ArrowLeft LEFT (+TURN_SPEED) over one second (1e-6)');
 
   // A pointer-lock error then a null-element change leaves turning functional and
   // clears Input.locked.
@@ -272,7 +278,11 @@ heading('CRITERION 2: mouse-look under lock / arrow-key fallback / lock hygiene'
   h.dispatch('window', 'keydown', { code: 'ArrowRight' });
   for (let i = 0; i < 20; i++) step(16);
   h.dispatch('window', 'keyup', { code: 'ArrowRight' });
-  const stillTurns = angleDiff(a0, dirAngle()) > 1e-3;
+  // Direction-agnostic on purpose: this assertion's claim is that arrow turning
+  // STILL WORKS after a pointer-lock failure, not which way it goes (2.4 owns
+  // direction). Using the absolute value makes it independent of the turn sign
+  // convention rather than accidentally coupled to it, as the bare `> 1e-3` was.
+  const stillTurns = Math.abs(angleDiff(a0, dirAngle())) > 1e-3;
   assert(lockedCleared && stillTurns,
     '2.5 after pointerlockerror + null pointerlockchange: Input.locked is false and arrow turning still works');
 

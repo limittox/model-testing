@@ -87,10 +87,19 @@ var Player = {
   };
 
   // Rotate the pose by `a` radians. cos(a)/sin(a) are computed ONCE and the SAME
-  // 2D rotation matrix is applied to BOTH the direction and the plane. Positive
-  // `a` turns right. Because both vectors share the matrix, the plane stays the
-  // direction rotated a quarter turn scaled by FOV_PLANE — no recompute needed,
-  // no drift in the plane-from-direction relationship.
+  // 2D rotation matrix is applied to BOTH the direction and the plane.
+  //
+  // SIGN CONVENTION (corrected — this comment previously claimed the opposite and
+  // the bug shipped): positive `a` turns the camera LEFT on screen, negative `a`
+  // turns RIGHT. That is forced by the plane relationship in setDir, NOT free to
+  // choose here: with planeX = dirY*F, planeY = -dirX*F, facing east (1,0) gives
+  // plane (0,-F), and since the renderer's cameraX runs -1 (screen left) .. +1
+  // (screen right), screen-RIGHT maps to -y. A positive `a` drives dirY toward
+  // +y, i.e. toward screen-LEFT. Callers converting player intent into a rotation
+  // must therefore NEGATE (see Player.update) — do not "fix" this by flipping the
+  // plane sign in setDir, which would mirror the entire rendered image.
+  // Verified in-browser by projecting a known world point and confirming it moves
+  // toward screen centre when the player turns toward it.
   Player.rotate = function (a) {
     if (!isFinite(a) || a === 0) return;
     var c = Math.cos(a);
@@ -222,7 +231,14 @@ var Player = {
 
     // TURNING: keyboard turn is delta-time scaled; mouse is per-event (already a
     // per-pixel delta) and deliberately NOT scaled by dt. One combined rotate.
-    var rot = turn * Player.TURN_SPEED * dt + mouseDX * Player.MOUSE_SENSITIVITY;
+    //
+    // The NEGATION is load-bearing, not cosmetic. Intent is expressed in SCREEN
+    // terms — ArrowRight is `turn: +1` and a rightward mouse gives a positive
+    // movementX, and both must swing the view RIGHT. Player.rotate's positive
+    // direction is screen-LEFT (forced by the camera-plane relationship; see the
+    // sign-convention note on rotate). Without this negation both the mouse and
+    // the arrow keys are inverted — which is exactly how it originally shipped.
+    var rot = -(turn * Player.TURN_SPEED * dt + mouseDX * Player.MOUSE_SENSITIVITY);
     if (rot !== 0) Player.rotate(rot);
 
     // MOVEMENT: build the local intent from forward + strafe.

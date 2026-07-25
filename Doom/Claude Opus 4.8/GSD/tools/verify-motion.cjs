@@ -508,11 +508,20 @@ assert(Player.maxStepPerFrame() < 0.5 && Player.maxStepPerFrame() > 0,
   for (let i = 0; i < 500; i++) step(2);
   const rot500 = angleDiff(a0, dirAngle());
 
-  const turnOk = near(rot60, TURN, 1e-6) && near(rot500, TURN, 1e-6) && near(rot60, rot500, 1e-6);
-  assert(turnOk, '12a. turn is delta-time scaled: one second of turn=1 rotates TURN_SPEED radians at 60 and 500 fps');
+  // SIGN CORRECTED (turn-inversion bug): turn=+1 is ArrowRight, which must swing
+  // the view RIGHT = NEGATIVE rotation (screen-right is -y via the camera plane).
+  // This previously expected +TURN and so codified the inverted bug as correct.
+  // The DELTA-TIME claim — the whole point of this assertion — is untouched: the
+  // magnitude is still exactly TURN_SPEED and rot60 must still equal rot500.
+  const turnOk = near(rot60, -TURN, 1e-6) && near(rot500, -TURN, 1e-6) && near(rot60, rot500, 1e-6);
+  assert(turnOk, '12a. turn is delta-time scaled: one second of turn=1 rotates TURN_SPEED radians (rightward) at 60 and 500 fps');
 
   // Mouse: total mouseDX 300 rotates the same amount whether in one frame or 50.
-  const expected = 300 * SENS;
+  // SIGN CORRECTED (mouse-inversion bug): positive mouseDX turns RIGHT = negative
+  // rotation. The NOT-delta-time-scaled claim this assertion exists for is
+  // untouched — the magnitude is still exactly 300*SENS whether delivered in one
+  // frame or fifty, and rotOne must still equal rotFifty.
+  const expected = -300 * SENS;
   Player.setDir(1, 0);
   a0 = dirAngle();
   setIntent({ mouseDX: 300 });
@@ -527,6 +536,66 @@ assert(Player.maxStepPerFrame() < 0.5 && Player.maxStepPerFrame() > 0,
 
   const mouseOk = near(rotOne, expected, 1e-6) && near(rotFifty, expected, 1e-6) && near(rotOne, rotFifty, 1e-6);
   assert(mouseOk, '12b. mouse turn is NOT delta-time scaled: total mouseDX 300 rotates the same in 1 frame or 50');
+})();
+
+// ===========================================================================
+// Assertion 12c/12d — TURN DIRECTION IN SCREEN SPACE (regression guard).
+//
+// Why this exists: the shipped game had INVERTED horizontal look — mouse-right
+// turned the view left — and every turn assertion above still passed, because
+// they all compared a rotation against a bare SIGN CONVENTION rather than
+// against what a player actually sees. A convention can be self-consistently
+// wrong; the screen cannot.
+//
+// So this asserts the user-observable property directly: project a world point
+// that renders on the RIGHT half of the screen, turn right, and require it to
+// move TOWARD the centre. Each direction is paired with its opposite as a
+// control, so a global sign flip fails both rather than silently swapping them.
+// ===========================================================================
+(function () {
+  const W = s.Framebuffer.width, halfW = W / 2;
+
+  // The shipped projection (js/entities.js): world point -> screen column.
+  const screenX = (ex, ey) => {
+    const relX = ex - Player.x, relY = ey - Player.y;
+    const invDet = 1 / (Player.planeX * Player.dirY - Player.dirX * Player.planeY);
+    const tX = invDet * (Player.dirY * relX - Player.dirX * relY);
+    const tY = invDet * (-Player.planeY * relX + Player.planeX * relY);
+    return tY > 0.05 ? halfW * (1 + tX / tY) : null;
+  };
+
+  const open = Level.LANDMARKS.openCell;
+  // Two probes 5 cells ahead (east), offset to either side of the view axis.
+  const probeA = [open.x + 5, open.y - 2];   // renders RIGHT of centre
+  const probeB = [open.x + 5, open.y + 2];   // renders LEFT  of centre
+  const face = () => { Player.x = open.x; Player.y = open.y; Player.setDir(1, 0); };
+
+  face();
+  const aRight = screenX(...probeA) > halfW;
+  const bLeft = screenX(...probeB) < halfW;
+
+  // Turn RIGHT (mouse-right): the right-side probe must approach centre and the
+  // left-side probe must recede.
+  face();
+  const a0 = screenX(...probeA), b0 = screenX(...probeB);
+  setIntent({ mouseDX: 150 });
+  step(16);
+  const a1 = screenX(...probeA), b1 = screenX(...probeB);
+  setIntent({ mouseDX: 0 });
+
+  assert(aRight && bLeft && a1 < a0 && b1 < b0,
+    '12c. mouse RIGHT swings the view right: a right-side target moves toward screen centre (and a left-side one recedes)');
+
+  // Turn LEFT — the mirror image. Fails too under a global sign flip.
+  face();
+  const c0 = screenX(...probeB), d0 = screenX(...probeA);
+  setIntent({ mouseDX: -150 });
+  step(16);
+  const c1 = screenX(...probeB), d1 = screenX(...probeA);
+  setIntent({ mouseDX: 0 });
+
+  assert(c1 > c0 && d1 > d0,
+    '12d. mouse LEFT swings the view left: a left-side target moves toward screen centre (and a right-side one recedes)');
 })();
 
 // ===========================================================================
