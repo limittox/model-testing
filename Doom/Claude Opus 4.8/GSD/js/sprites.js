@@ -36,6 +36,11 @@ var Sprites = {
   map: {},
 
   names: ['enemy', 'pickup', 'weapon',
+          // Phase 5 (05-04): the four TYPED world pickups. 'pickup' above stays a
+          // strict-identity ALIAS for pickupHealth (the shipped 32x32 medkit), the
+          // same discipline 'enemy' and 'weapon' use, so every earlier consumer
+          // keeps working byte for byte.
+          'pickupHealth', 'pickupArmor', 'pickupAmmo', 'pickupShotgun',
           // Phase 5 (05-CONTEXT D-09): the enemy animation frames the AI picks
           // per frame, plus the enemy's ranged attack projectile.
           'enemyIdle', 'enemyWalk1', 'enemyWalk2', 'enemyAttack', 'fireball',
@@ -75,7 +80,16 @@ var Sprites = {
     // names 'enemy' — including tools/verify-sprites.cjs's pixel proofs — keeps
     // working byte-for-byte untouched.
     m.enemy = m.enemyIdle;
-    m.pickup = Sprites.makePickup(202);
+    // Phase 5 (05-04) TYPED PICKUPS. The shipped Phase 2 medkit becomes the HEALTH
+    // pickup under its own name, and the original 'pickup' key stays a
+    // strict-identity ALIAS for it (same asset object, same salt 202) — the same
+    // discipline m.enemy and m.weapon use, so every earlier consumer and every
+    // Phase 4 pixel proof that names 'pickup' keeps working byte for byte.
+    m.pickupHealth = Sprites.makePickup(202);
+    m.pickup = m.pickupHealth;
+    m.pickupArmor = Sprites.makeArmorPickup(212);
+    m.pickupAmmo = Sprites.makeAmmoPickup(222);
+    m.pickupShotgun = Sprites.makeShotgunPickup(232);
     // Phase 5 (05-02) WEAPON VIEWMODELS. The pistol is registered under its own
     // NAME now that there are two weapons, and the original 'weapon' key stays a
     // strict-identity ALIAS for it — the same discipline m.enemy uses for the idle
@@ -466,6 +480,188 @@ var Sprites = {
       4: [255, 255, 250],  // highlight
       5: [168, 168, 164],  // shaded band
       6: [16, 16, 20]      // rim
+    }, rand);
+
+    return t;
+  };
+
+  // ---------------------------------------------------------------------------
+  // ARMOR PICKUP (05-04) — 32x32 green plated vest: a torso-shaped body plate with
+  // a lighter rim bevel, two shoulder plates and a segmented lower skirt. Same
+  // 32x32 framing, same mask-then-colorize style and the same floor-anchored 0.5
+  // billboard scale as the medkit, so all four pickups read as one item family
+  // while the SILHOUETTE (a vest, not a box) is what distinguishes it at distance.
+  // ---------------------------------------------------------------------------
+  Sprites.makeArmorPickup = function (salt) {
+    var W = 32, H = 32;
+    var t = makeAsset(W, H);
+    var rand = mulberry32(CONFIG.SEED + salt);
+    var m = new Uint8Array(W * H);
+
+    var PLATE = 1, BEVEL = 2, DARK = 3, STRAP = 4, STUD = 5, RIM = 6;
+
+    // Shoulder plates, then the main body plate tapering to the waist.
+    mellipse(m, W, H, 8, 9, 5, 4, PLATE);
+    mellipse(m, W, H, 23, 9, 5, 4, PLATE);
+    for (var y = 7; y < 24; y++) {
+      var k = (y - 7) / 17;
+      mspan(m, W, H, 16, y, 10 - k * 3.5, PLATE);
+    }
+
+    // The lighter rim BEVEL along the top edge and both flanks — the read that
+    // says "armour plate" rather than "green box".
+    mrect(m, W, H, 7, 7, 18, 1, BEVEL);
+    for (var yb = 8; yb < 23; yb++) {
+      var kb = (yb - 7) / 17;
+      var halfB = Math.round(10 - kb * 3.5);
+      mset(m, W, H, 16 - halfB, yb, BEVEL);
+      mset(m, W, H, 16 + halfB - 1, yb, BEVEL);
+    }
+
+    // A dark neck cut-out so the plate reads as something you wear.
+    mellipse(m, W, H, 16, 7, 4, 3, DARK);
+
+    // Segmented lower skirt: three bands separated by shadow grooves.
+    mrect(m, W, H, 10, 24, 12, 4, PLATE);
+    mrect(m, W, H, 10, 26, 12, 1, DARK);
+    mrect(m, W, H, 15, 24, 2, 4, DARK);
+
+    // Crossed straps and two rivet studs.
+    mrect(m, W, H, 11, 12, 10, 2, STRAP);
+    mrect(m, W, H, 15, 10, 2, 12, STRAP);
+    mset(m, W, H, 11, 17, STUD);
+    mset(m, W, H, 20, 17, STUD);
+
+    outline(m, W, H, RIM);
+
+    colorize(t, m, {
+      1: [58, 154, 74],    // green plate
+      2: [126, 216, 132],  // lighter rim bevel
+      3: [22, 62, 34],     // shadow / neck cut-out
+      4: [40, 108, 56],    // strap
+      5: [222, 226, 190],  // rivet stud
+      6: [12, 26, 16]      // rim
+    }, rand);
+
+    return t;
+  };
+
+  // ---------------------------------------------------------------------------
+  // AMMO PICKUP (05-04) — 32x32 olive crate: a boxy body with a lid seam, a
+  // BRASS-TOPPED clip band across the middle (the cartridge heads reading as a row
+  // of bright dots) and a pale stencil stripe along the lower face. The brass is
+  // the colour nothing else in the pickup family uses, which is what makes it
+  // identifiable once the billboard is only a few pixels wide.
+  // ---------------------------------------------------------------------------
+  Sprites.makeAmmoPickup = function (salt) {
+    var W = 32, H = 32;
+    var t = makeAsset(W, H);
+    var rand = mulberry32(CONFIG.SEED + salt);
+    var m = new Uint8Array(W * H);
+
+    var CRATE = 1, EDGE = 2, BRASS = 3, BRASSHI = 4, STENCIL = 5, SHADE = 6, RIM = 7;
+
+    // Crate body with a dark edge all round and a shadowed lower band.
+    mrect(m, W, H, 3, 7, 26, 21, EDGE);
+    mrect(m, W, H, 4, 8, 24, 19, CRATE);
+    mrect(m, W, H, 4, 23, 24, 4, SHADE);
+    mrect(m, W, H, 4, 8, 24, 1, BRASSHI);   // lit top lip
+    mrect(m, W, H, 3, 12, 26, 1, EDGE);     // lid seam
+
+    // Corner reinforcement brackets.
+    mrect(m, W, H, 4, 8, 3, 3, EDGE);
+    mrect(m, W, H, 25, 8, 3, 3, EDGE);
+    mrect(m, W, H, 4, 24, 3, 3, EDGE);
+    mrect(m, W, H, 25, 24, 3, 3, EDGE);
+
+    // THE CLIP BAND: a brass strip across the middle with individual cartridge
+    // heads punched into it, each catching a highlight.
+    mrect(m, W, H, 6, 14, 20, 6, BRASS);
+    mrect(m, W, H, 6, 14, 20, 1, BRASSHI);
+    for (var c = 0; c < 5; c++) {
+      mrect(m, W, H, 7 + c * 4, 15, 2, 4, BRASSHI);
+      mset(m, W, H, 9 + c * 4, 16, EDGE);   // the groove between rounds
+    }
+
+    // Stencil stripe on the lower face.
+    mrect(m, W, H, 8, 21, 16, 2, STENCIL);
+
+    outline(m, W, H, RIM);
+
+    colorize(t, m, {
+      1: [104, 106, 62],   // olive crate
+      2: [40, 42, 26],     // dark edge / brackets
+      3: [186, 142, 48],   // brass clip band
+      4: [242, 208, 118],  // brass highlight / lit lip
+      5: [220, 222, 200],  // pale stencil stripe
+      6: [72, 74, 44],     // shaded lower band
+      7: [14, 16, 10]      // rim
+    }, rand);
+
+    return t;
+  };
+
+  // ---------------------------------------------------------------------------
+  // SHOTGUN PICKUP (05-04) — 32x32 world item: the weapon LYING ON THE GROUND, not
+  // the viewmodel. Barrel and stock are drawn along a shallow diagonal (each row
+  // shifted by a fixed slope) so the silhouette reads as something dropped at an
+  // angle rather than a floating horizontal bar, and the WOOD tone is shared with
+  // the shotgun viewmodel (Sprites.makeShotgun) so the item the player walks over
+  // is visibly the weapon they end up holding.
+  // ---------------------------------------------------------------------------
+  Sprites.makeShotgunPickup = function (salt) {
+    var W = 32, H = 32;
+    var t = makeAsset(W, H);
+    var rand = mulberry32(CONFIG.SEED + salt);
+    var m = new Uint8Array(W * H);
+
+    var METAL = 1, DARK = 2, WOOD = 3, WOODDK = 4, HILITE = 5, BORE = 6, RIM = 7;
+
+    // The lay angle: one row of drop for every SLOPE columns travelled. Written as
+    // an integer shift per column so the diagonal is exact and deterministic — no
+    // trig, no rounding drift along the length.
+    var x, dy;
+    function lay(x0, len, yTop, thick, id) {
+      for (var i = 0; i < len; i++) {
+        x = x0 + i;
+        dy = Math.round(i * 0.28);          // ~15 degrees, nose-up to the right
+        mrect(m, W, H, x, yTop + dy, 1, thick, id);
+      }
+    }
+
+    // Twin barrels: the metal run, its lit top edge and its shadowed underside.
+    lay(3, 19, 12, 5, METAL);
+    lay(3, 19, 12, 1, HILITE);
+    lay(3, 19, 16, 1, DARK);
+    mrect(m, W, H, 3, 12, 2, 5, DARK);      // muzzle ring at the low end
+    mrect(m, W, H, 3, 13, 1, 3, BORE);      // the bores
+
+    // Wooden fore-end clamped under the barrels, mid-length.
+    lay(9, 8, 16, 4, WOOD);
+    lay(9, 8, 19, 1, WOODDK);
+
+    // Receiver, then the wooden stock running up to the right.
+    lay(21, 5, 17, 5, METAL);
+    lay(21, 5, 20, 1, DARK);
+    lay(25, 6, 18, 6, WOOD);
+    lay(25, 6, 22, 1, WOODDK);
+    lay(25, 6, 18, 1, HILITE);
+
+    // Trigger guard hanging below the receiver.
+    mrect(m, W, H, 22, 23, 4, 1, DARK);
+    mset(m, W, H, 22, 22, DARK);
+    mset(m, W, H, 25, 22, DARK);
+
+    outline(m, W, H, RIM);
+
+    colorize(t, m, {
+      1: [126, 132, 142],  // gunmetal — shared with the shotgun viewmodel
+      2: [58, 62, 70],     // dark metal
+      3: [138, 92, 48],    // WOOD — the same distinguishing tone as the viewmodel
+      4: [92, 58, 28],     // wood shadow
+      5: [192, 200, 212],  // specular highlight
+      6: [18, 18, 22],     // bore
+      7: [14, 14, 18]      // rim
     }, rand);
 
     return t;

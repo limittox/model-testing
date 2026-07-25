@@ -166,4 +166,50 @@ var Combat = {
     return Combat.armor - before;
   };
 
+  // ===========================================================================
+  // AMMO AND WEAPON GRANTS (05-04, D-07) — the other half of the pickup surface.
+  //
+  // EVERY CLAMP LIVES IN THESE METHODS (threat T-05-22). js/pickups.js names a
+  // grant and an amount and nothing else; it never touches Combat.health,
+  // Combat.armor, Combat.ammo or Combat.hasShotgun directly. That is the whole
+  // reason no caller can push a field past its maximum: there IS no other path.
+  //
+  // Each returns the amount actually applied (or, for the weapon, whether the
+  // grant changed anything), so a pickup can tell a useful collection from a
+  // redundant one without reading state back.
+  // ===========================================================================
+
+  // Bullets have no maximum in this project (D-04 declares a start value and no
+  // cap), so this is an unclamped add — but it still lives here, beside the
+  // clamped grants, so "how do I give the player ammo" has exactly one answer.
+  // The non-finite / non-positive guard is the same one every other grant uses.
+  Combat.addBullets = function (amount) {
+    if (!isFinite(amount) || amount <= 0) return 0;
+    var before = Combat.ammo.bullets;
+    Combat.ammo.bullets += Math.floor(amount);
+    return Combat.ammo.bullets - before;
+  };
+
+  Combat.addShells = function (amount) {
+    if (!isFinite(amount) || amount <= 0) return 0;
+    var before = Combat.ammo.shells;
+    Combat.ammo.shells += Math.floor(amount);
+    return Combat.ammo.shells - before;
+  };
+
+  // THE SHOTGUN GRANT (PICK-04). Sets the ownership flag that Combat.selectWeapon
+  // gates on and hands over CONFIG.SHOTGUN_PICKUP_SHELLS with it, so the weapon
+  // the player just picked up is immediately usable rather than an empty prop.
+  //
+  // Returns true when anything changed. Picking a SECOND shotgun up still yields
+  // its shells (that is what the ammo half is for) but reports no ownership
+  // change — which is why the return is "did this do anything", not "am I now
+  // holding a shotgun".
+  Combat.grantShotgun = function () {
+    var hadIt = Combat.hasShotgun;
+    Combat.hasShotgun = true;
+    var gained = Combat.addShells(CONFIG.SHOTGUN_PICKUP_SHELLS);
+    return (!hadIt) || gained > 0;
+  };
+
 })();

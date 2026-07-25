@@ -64,6 +64,20 @@ var Game = {
   kills: 0,
   totalKills: 0,
 
+  // --- The message QUEUE (PICK-05, Phase 5 plan 05-04) ---
+  // A PREALLOCATED RING of CONFIG.MESSAGE_MAX records, filled in below at module
+  // load. Each record is {text, at} where `at` is the Game.time the message was
+  // posted (-1 = the slot has never been written). message(text) writes the slot
+  // at `messageHead` and advances the head — nothing is allocated per message and
+  // the ring cannot grow, so a player standing on a pile of pickups cannot make
+  // the queue unbounded (threat T-05-26).
+  //
+  // Phase 5 PRODUCES the queue and draws one minimal line (Game.renderMessage);
+  // Phase 6's HUD owns the real presentation.
+  messages: [],
+  messageHead: 0,
+  messagesPosted: 0,
+
   // --- Seams (defaults; assigned by Plan 03 / Phase 3) ---
   input: null,    // { readIntent(): intent, reset?() }
   view: null,     // { render(): void }  — writes buf32, does NOT present
@@ -169,6 +183,13 @@ var Game = {
     // ammo decision; passing the (possibly ZERO_INTENT-substituted) intent through
     // is what makes the dead-player freeze cover firing for free.
     if (typeof Weapons !== 'undefined') Weapons.update(dt, intent);
+
+    // PICKUPS run LAST, after every actor has finished moving, so the proximity
+    // test sees the pose the frame actually ended on rather than a stale one.
+    // Collection is position-driven and takes no intent (PICK-05: there is no
+    // interact key) — which also means a DEAD player still cannot collect, because
+    // the ZERO_INTENT substitution above froze them where they stood.
+    if (typeof Pickups !== 'undefined') Pickups.update(dt);
   };
 
   // ===========================================================================
@@ -194,6 +215,81 @@ var Game = {
   // ===========================================================================
   Game.resetStats = function () {
     Game.kills = 0;
+    Game.clearMessages();
+    return Game;
+  };
+
+  // ===========================================================================
+  // THE MESSAGE QUEUE (PICK-05, 05-04) — the EVENT half of "picking something up
+  // tells you what you got". Phase 5 posts; Game.renderMessage draws one minimal
+  // line into the framebuffer; Phase 6's HUD owns the real presentation.
+  // ===========================================================================
+
+  // Preallocate the ring ONCE, here at module load. CONFIG is loaded first (it is
+  // script 1 in the load-order contract), so the size is available. Every record
+  // is created here and MUTATED thereafter — message() allocates nothing.
+  (function allocateMessageRing() {
+    var n = CONFIG.MESSAGE_MAX;
+    Game.messages.length = 0;
+    for (var i = 0; i < n; i++) Game.messages.push({ text: '', at: -1 });
+    Game.messageHead = 0;
+    Game.messagesPosted = 0;
+  })();
+
+  // POST a message. Writes the next slot and advances the head. Returns whether
+  // anything was posted, so a caller can tell a real post from a rejected one.
+  //
+  // Stamped with Game.time — SIMULATION time, accumulated inside Game.step
+  // (contract 1b) — so a message ages under BOTH the rAF loop and a direct
+  // Game.step(dt). Stamping with wall-clock time here is what would make every
+  // age-based proof in this phase vacuous.
+  Game.message = function (text) {
+    if (typeof text !== 'string' || text.length === 0) return false;
+    var n = Game.messages.length;
+    if (n === 0) return false;
+    var slot = Game.messages[Game.messageHead];
+    slot.text = text;
+    slot.at = Game.time;
+    Game.messageHead = (Game.messageHead + 1) % n;
+    Game.messagesPosted += 1;
+    return true;
+  };
+
+  // The NEWEST message whose age is below CONFIG.MESSAGE_TIME, or null.
+  //
+  // Only the newest slot needs testing, and that is a property of the data rather
+  // than a shortcut: Game.time is monotonic, so posting times are non-decreasing
+  // around the ring — if the newest record has expired, every older one expired
+  // earlier. Two pickups collected in quick succession therefore leave the SECOND
+  // message on screen, which is the intended behaviour.
+  Game.activeMessage = function () {
+    var n = Game.messages.length;
+    if (n === 0) return null;
+    var slot = Game.messages[(Game.messageHead - 1 + n) % n];
+    if (slot.at < 0 || slot.text.length === 0) return null;
+    var age = Game.time - slot.at;
+    // `!(age >= 0)` catches NaN, which `age < 0` would not.
+    if (!(age >= 0) || age >= CONFIG.MESSAGE_TIME) return null;
+    return slot;
+  };
+
+  // Age of the active message in seconds, or -1 when there is none. Exposed so the
+  // draw pass (and a future HUD) derives its fade from one place.
+  Game.messageAge = function () {
+    var slot = Game.activeMessage();
+    return slot ? (Game.time - slot.at) : -1;
+  };
+
+  // Clear the ring IN PLACE — the records and the array keep their identities, so
+  // nothing holding a reference is orphaned. Called by resetStats(), which means a
+  // world rebuild also wipes the messages the previous world posted.
+  Game.clearMessages = function () {
+    for (var i = 0; i < Game.messages.length; i++) {
+      Game.messages[i].text = '';
+      Game.messages[i].at = -1;
+    }
+    Game.messageHead = 0;
+    Game.messagesPosted = 0;
     return Game;
   };
 

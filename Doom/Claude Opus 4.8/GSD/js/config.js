@@ -244,5 +244,39 @@ var CONFIG = {
   // WEAPON_SEED_SALT: the distinct salt added to CONFIG.SEED for the weapon
   // spread stream, so pellet scatter is deterministic and reproducible headlessly
   // and cannot correlate with any procedural-art stream.
-  WEAPON_SEED_SALT: 7331
+  WEAPON_SEED_SALT: 7331,
+
+  // ===========================================================================
+  // PHASE 5 — PICKUPS AND THE MESSAGE EVENT (05-CONTEXT D-07 + D-11: ALL tuning
+  // numbers live here; js/pickups.js contains no magic numbers).
+  // ===========================================================================
+
+  // COLLECT_RADIUS: how near the player's CENTRE must come to a pickup's centre
+  // for it to be collected, in cells. Compared SQUARED on both sides inside the
+  // scan (no square root in the per-frame loop). 0.5 is half a cell: the player
+  // has to actually walk over the item, not merely into its cell corner.
+  //
+  // DERIVED SAFETY: the player's largest single-frame step is
+  // WALK_SPEED * RUN_MULT * DT_MAX. That must stay comfortably under
+  // 2 * COLLECT_RADIUS or a running player could straddle a pickup between two
+  // frames and never register a contact — the same "test the step, not just the
+  // endpoint" hazard the projectile radius documents.
+  COLLECT_RADIUS: 0.5,
+
+  // --- Per-item effects (D-07). Every clamp lives in the Combat grant methods,
+  // never in the pickup, so no caller can push a field past its maximum.
+  HEALTH_PICKUP: 25,          // health restored, clamped to PLAYER_MAX_HEALTH
+  ARMOR_PICKUP: 50,           // armor granted, clamped to PLAYER_MAX_ARMOR
+  AMMO_PICKUP: 20,            // bullets added by an ammo box
+  SHOTGUN_PICKUP_SHELLS: 8,   // shells that come WITH the shotgun grant
+
+  // --- The message EVENT (the Phase 5 half of PICK-05) ---------------------
+  // MESSAGE_TIME: seconds a posted message stays visible before it expires. Ages
+  // are measured against Game.time (SIMULATION time, accumulated inside
+  // Game.step), so a message ages under both the rAF loop and a direct step.
+  MESSAGE_TIME: 2.5,
+  // MESSAGE_MAX: the size of the PREALLOCATED message ring. The ring cannot grow
+  // and nothing is allocated per message, so a player standing on a pile of
+  // pickups cannot make the queue unbounded (threat T-05-26).
+  MESSAGE_MAX: 4
 };

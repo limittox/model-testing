@@ -85,12 +85,19 @@ var Entities = {
   // Level.spawns a second time and without creating a duplicate object. The
   // enemy descriptor names the IDLE animation frame, which the AI then swaps per
   // frame; 'enemy' remains a live alias for that same asset for Phase 4 callers.
+  // `itemType` (05-04) is the SECOND stamped field: `kind` says WHICH MODULE owns
+  // the entity, `itemType` says WHAT IT IS to that module. js/pickups.js adopts on
+  // kind and then routes the effect on itemType through a data table, so the four
+  // pickups are four rows of data rather than four branches. It is deliberately
+  // copied onto EVERY entity (null for an enemy) rather than only onto pickups:
+  // one object shape for the whole list keeps the sprite pass's property reads
+  // monomorphic.
   SPRITE_FOR: {
-    enemy:   { kind: 'enemy',  sprite: 'enemyIdle', scale: 1.0, onFloor: true },
-    health:  { kind: 'pickup', sprite: 'pickup',    scale: 0.5, onFloor: true },
-    armor:   { kind: 'pickup', sprite: 'pickup',    scale: 0.5, onFloor: true },
-    ammo:    { kind: 'pickup', sprite: 'pickup',    scale: 0.5, onFloor: true },
-    shotgun: { kind: 'pickup', sprite: 'pickup',    scale: 0.5, onFloor: true }
+    enemy:   { kind: 'enemy',  itemType: null,      sprite: 'enemyIdle',     scale: 1.0, onFloor: true },
+    health:  { kind: 'pickup', itemType: 'health',  sprite: 'pickupHealth',  scale: 0.5, onFloor: true },
+    armor:   { kind: 'pickup', itemType: 'armor',   sprite: 'pickupArmor',   scale: 0.5, onFloor: true },
+    ammo:    { kind: 'pickup', itemType: 'ammo',    sprite: 'pickupAmmo',    scale: 0.5, onFloor: true },
+    shotgun: { kind: 'pickup', itemType: 'shotgun', sprite: 'pickupShotgun', scale: 0.5, onFloor: true }
   },
 
   // Small positive depth clip: a sprite at or behind the camera plane
@@ -136,6 +143,7 @@ var Entities = {
         x: sp.x,                         // cell-centre world coords (from Level)
         y: sp.y,
         kind: desc.kind,                 // the Phase 5 adoption handle
+        itemType: desc.itemType,         // 05-04: WHAT it is, within its kind
         sprite: desc.sprite,
         scale: desc.scale,
         onFloor: desc.onFloor

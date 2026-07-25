@@ -47,6 +47,14 @@ window.addEventListener('load', function () {
   Game.resetStats();
   Enemies.build();
 
+  // The pickup VIEW is built from the SAME Entities.build() Enemies.build() just
+  // ran, adopting the pickup billboards it emitted. It MUST come after
+  // Enemies.build(), not before: Entities.build() assigns a FRESH Entities.list, so
+  // a view built first would be holding orphans. Enemies.reset() re-runs this pair
+  // together for exactly that reason.
+  Sound.reset();
+  Pickups.build();
+
   // Seed the weapon state: the shared cooldown, the viewmodel timers and bob
   // phase, and the deterministic pellet-spread stream. Called AFTER Player.spawn()
   // because it seeds the viewmodel's travel tracker from the current pose — a

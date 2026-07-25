@@ -171,8 +171,8 @@ function setEntities(list) {
 
 // ===========================================================================
 // 1. BUILD IS SPAWN-DERIVED AND IDEMPOTENT. enemy spawns -> the enemy IDLE frame
-//    at scale 1; health/armor/ammo/shotgun -> 'pickup' scale 0.5; exit/player
-//    skipped.
+//    at scale 1; health/armor/ammo/shotgun -> their OWN typed pickup sprite at
+//    scale 0.5; exit/player skipped.
 //
 //    THE COUNT EXPECTATION THAT LEGITIMATELY MOVED (05-01): the built list is now
 //    the spawn-derived billboards PLUS CONFIG.PROJ_POOL preallocated projectile
@@ -202,13 +202,33 @@ function setEntities(list) {
   // Type mapping spot-check: an enemy spawn -> the idle frame at scale 1 onFloor;
   // a pickup -> 0.5; a pooled projectile -> the fireball at PROJ_SCALE, NOT floor-
   // anchored, and inactive until fired.
-  let enemyOk = true, pickupOk = true, projOk = true, enemySeen = 0, projSeen = 0;
+  // The itemType -> sprite-name expectation, written out INDEPENDENTLY here rather
+  // than read from Entities.SPRITE_FOR: reading the table under test would make
+  // the assertion tautological.
+  const PICKUP_SPRITE = {
+    health: 'pickupHealth',
+    armor: 'pickupArmor',
+    ammo: 'pickupAmmo',
+    shotgun: 'pickupShotgun'
+  };
+  let enemyOk = true, pickupOk = true, projOk = true;
+  let enemySeen = 0, projSeen = 0, pickupSeen = 0;
   for (const e of Entities.list) {
     if (e.sprite === 'enemyIdle') {
       enemySeen++;
       if (!(e.scale === 1.0 && e.onFloor === true)) enemyOk = false;
     }
-    if (e.sprite === 'pickup' && !(e.scale === 0.5 && e.onFloor === true)) pickupOk = false;
+    // 05-04 re-pointed this at the TYPED pickup sprites. It keys off `kind`
+    // (not off a sprite name), which is strictly stronger than the previous
+    // form: it can no longer pass vacuously if the sprite names change again,
+    // and it now demands that each pickup names the sprite its OWN itemType
+    // maps to — a shotgun drawn as a medkit fails here.
+    if (e.kind === 'pickup') {
+      pickupSeen++;
+      const want = PICKUP_SPRITE[e.itemType];
+      if (!(e.scale === 0.5 && e.onFloor === true && e.sprite === want &&
+            !!Sprites.map[e.sprite])) pickupOk = false;
+    }
     if (e.kind === 'projectile') {
       projSeen++;
       if (!(e.sprite === 'fireball' && e.scale === CONFIG.PROJ_SCALE &&
@@ -218,7 +238,9 @@ function setEntities(list) {
   assert(enemyOk && enemySeen > 0,
     '1b. enemy billboards name the IDLE animation frame at scale 1.0, onFloor true (' +
     enemySeen + ' found)');
-  assert(pickupOk, '1c. pickup billboards are scale 0.5, onFloor true');
+  assert(pickupOk && pickupSeen > 0,
+    '1c. every pickup billboard is scale 0.5, onFloor true, and names the sprite its ' +
+    'OWN itemType maps to (' + pickupSeen + ' found)');
   assert(projOk && projSeen === CONFIG.PROJ_POOL,
     '1c-ii. all ' + CONFIG.PROJ_POOL + ' pooled projectiles are the fireball at PROJ_SCALE, ' +
     'not floor-anchored, and start INACTIVE (' + projSeen + ' found)');

@@ -110,7 +110,29 @@
                               Game.step. Needs CONFIG + Level + Player + Combat +
                               Enemies (+ Framebuffer/Sprites/Raycaster for the
                               viewmodel draw).
-     15. js/game.js         — defines Game: the requestAnimationFrame loop with
+     15. js/sound.js        — defines Sound: the Sound.play(name) EVENT HOOK. It
+                              records the event (a small preallocated ring of
+                              recent names, a total count and the last name) and
+                              returns; it creates NO AudioContext and touches no
+                              DOM. Phase 5 fires the event so PICK-05 has a real
+                              call site; PHASE 6 (AUD-01/02/03) replaces the body
+                              with Web Audio synthesis and adds the remaining call
+                              sites (firing, enemy death, player damage). Depends
+                              on nothing — it sits here purely so js/pickups.js,
+                              its only Phase 5 caller, loads after it.
+     16. js/pickups.js      — defines Pickups: the typed world items. build()
+                              ADOPTS the pickup billboards entities.js already
+                              emitted — matched by their `kind` field, and
+                              re-runnable because Entities.build() assigns a FRESH
+                              list — and update() is the per-frame proximity scan
+                              that collects an item the player walks over, applies
+                              its effect through a Combat grant, deactivates it,
+                              posts a Game.message and calls the Sound hook.
+                              Dispatched from Game.step AFTER the weapon update, so
+                              the test sees the pose the frame ended on. Needs
+                              CONFIG + Player + Entities + Combat + Sound (+ Game
+                              for the message queue, resolved at call time).
+     17. js/game.js         — defines Game: the requestAnimationFrame loop with
                               the CLAMPED delta-time (CONFIG.DT_MAX), the refocus
                               resync, and the two seams. Game.input (an intent
                               source) and Game.view (a buf32 writer that does NOT
@@ -119,21 +141,23 @@
                               lives in CONFIG.DT_MAX; the single Framebuffer
                               present() lives in Game.render() so the once-per-
                               frame blit contract survives every view swap.
-     16. js/main.js         — entry point (needs CONFIG + Framebuffer + assets +
+     18. js/main.js         — entry point (needs CONFIG + Framebuffer + assets +
                               Level + Player + Input + TopDown + Raycaster +
-                              Entities + Combat + Enemies + Weapons + Game): builds
-                              the level, spawns the player, resets the player's
-                              combat and weapon state and builds the enemies
-                              (Enemies.build() calls Entities.build() itself, then
-                              adopts), wires Game.input = Input and Game.view =
-                              Raycaster (with TopDown.ENABLED = false),
-                              Raycaster.spritePass = Entities.render and the
-                              viewmodel onto Raycaster.overlayPasses, attaches
-                              resync triggers, starts the loop.
+                              Entities + Combat + Enemies + Weapons + Sound +
+                              Pickups + Game): builds the level, spawns the player,
+                              resets the player's combat and weapon state, builds
+                              the enemies (Enemies.build() calls Entities.build()
+                              itself, then adopts) and then Pickups.build() (which
+                              adopts the pickup billboards from that SAME build),
+                              wires Game.input = Input and Game.view = Raycaster
+                              (with TopDown.ENABLED = false), Raycaster.spritePass
+                              = Entities.render and then the viewmodel and the
+                              message line onto Raycaster.overlayPasses IN THAT
+                              ORDER, attaches resync triggers, starts the loop.
       i.e. config -> framebuffer -> textures -> sprites -> preview -> level ->
       player -> input -> topdown -> raycaster -> entities -> combat -> enemies ->
-      weapons -> game -> main. Order encodes the dependency graph: later files
-      extend earlier globals.
+      weapons -> sound -> pickups -> game -> main. Order encodes the dependency
+      graph: later files extend earlier globals.
 
       NOT LOADED HERE: everything under tools/. Those are Node-only .cjs
       verification harnesses; the browser never sees them, which is why the
@@ -169,6 +193,8 @@
   <script src="js/combat.js"></script>
   <script src="js/enemies.js"></script>
   <script src="js/weapons.js"></script>
+  <script src="js/sound.js"></script>
+  <script src="js/pickups.js"></script>
   <script src="js/game.js"></script>
   <script src="js/main.js"></script>
 </body>
