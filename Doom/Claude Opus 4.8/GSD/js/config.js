@@ -460,5 +460,156 @@ var CONFIG = {
   MINIMAP_PLAYER_DOT_FRAC: 0.075,
   // The facing tick's length, as a fraction of the box. Long enough to read as a
   // direction at a glance, short enough that it cannot be mistaken for a wall.
-  MINIMAP_FACING_FRAC: 0.115
+  MINIMAP_FACING_FRAC: 0.115,
+
+  // ===========================================================================
+  // PHASE 6 — SYNTHESIZED AUDIO (AUD-01/02/03; 06-CONTEXT D-05; plan 06-03)
+  //
+  // EVERY audio number in the project lives in this block. js/sound.js contains
+  // no bare frequency, duration, gain or filter literal at all — it is a generic
+  // interpreter of the records below, which is what makes "the six effects are
+  // distinct" a claim about DATA that a harness can compare field by field
+  // rather than a claim about code it would have to read.
+  //
+  // NOT ONE BYTE OF AUDIO IS EVER LOADED. There is no file, no fetch, no
+  // decodeAudioData and no Audio element anywhere in the shipped surface: every
+  // effect is built at play time out of an oscillator, a shared white-noise
+  // buffer, a biquad filter and a gain envelope (AUD-01). The self-containment
+  // gate in tools/verify-audio.cjs section 3 asserts exactly that.
+  // ===========================================================================
+
+  // --- The EVENT names (AUD-02) ---------------------------------------------
+  // The event vocabulary as DATA, declared in the first-loaded file so that every
+  // producer can reach it: js/weapons.js (script 14), js/enemies.js (13) and
+  // js/combat.js (12) all load BEFORE js/sound.js (15), so they cannot read
+  // Sound.NAMES at their own module-evaluation time. Declaring the strings here
+  // instead means the weapon table, the AI, the damage path, js/sound.js's
+  // Sound.NAMES / Sound.RECIPE_FOR and every harness expectation all share ONE
+  // spelling — no call site ever re-types a literal.
+  //
+  // An EVENT is not a RECIPE: the four pickup events are four distinct events at
+  // the call sites (Phase 5 asserts they are pairwise distinct) that deliberately
+  // share ONE synthesis recipe. Sound.RECIPE_FOR is the mapping.
+  SFX_EVENTS: {
+    PISTOL: 'pistolFire',
+    SHOTGUN: 'shotgunFire',
+    DRY_FIRE: 'dryClick',
+    ENEMY_ATTACK: 'enemyAttack',
+    ENEMY_DEATH: 'enemyDeath',
+    PLAYER_HURT: 'playerHurt',
+    // The four Phase 5 names, UNCHANGED — js/pickups.js's effect table reaches
+    // them through Sound.NAMES and verify-pickups asserts their distinctness.
+    PICKUP_HEALTH: 'pickupHealth',
+    PICKUP_ARMOR: 'pickupArmor',
+    PICKUP_AMMO: 'pickupAmmo',
+    PICKUP_WEAPON: 'pickupWeapon'
+  },
+
+  // --- The master bus (D-05) ------------------------------------------------
+  // EVERY sound routes through its own gain into this ONE master gain, then a
+  // compressor, then the destination. The compressor is the reason a shotgun
+  // blast landing on top of two enemy deaths and a pickup does not clip: it
+  // rides the sum down instead of letting it wrap. Well under 1 because several
+  // effects genuinely do overlap in a firefight.
+  SFX_MASTER_GAIN: 0.42,
+  // DynamicsCompressorNode settings. A low threshold with a moderate ratio and a
+  // fast attack: this is a safety limiter, not an effect.
+  SFX_COMP_THRESHOLD: -18,   // dB
+  SFX_COMP_KNEE: 12,         // dB
+  SFX_COMP_RATIO: 6,
+  SFX_COMP_ATTACK: 0.003,    // seconds
+  SFX_COMP_RELEASE: 0.25,    // seconds
+
+  // ONE white-noise buffer is generated at unlock and replayed by every noise
+  // layer forever (threat T-06-18). A second of mono noise is longer than the
+  // longest decay below, so no effect ever runs off the end of it, and filling it
+  // once means a firefight allocates no audio buffers at all.
+  SFX_NOISE_SECONDS: 1.0,
+
+  // --- The six (plus one) RECIPES (AUD-01/AUD-02, D-05) ---------------------
+  // Every entry has the IDENTICAL shape, so the interpreter has no per-effect
+  // branch and a harness can compare two effects field by field:
+  //
+  //   tone        does it have an oscillator layer at all
+  //   wave        the oscillator waveform ('square' | 'sawtooth' | 'triangle' | 'sine')
+  //   freqStart   the pitch at the attack, in Hz
+  //   freqEnd     the pitch at the end of the decay, in Hz (a SWEEP, not a beep)
+  //   noise       does it have a white-noise layer at all
+  //   noiseLevel  the noise layer's level RELATIVE to the tone layer (which runs at 1)
+  //   filter      the biquad type, or null for no filter at all
+  //   cutoffStart the filter cutoff at the attack, in Hz
+  //   cutoffEnd   the filter cutoff at the end of the decay, in Hz (also a sweep)
+  //   q           the filter Q
+  //   gain        the PEAK of the gain envelope
+  //   attack      seconds from the envelope floor up to the peak
+  //   decay       seconds from the peak back down to the floor
+  //   epsilon     THE ENVELOPE FLOOR, and it is never 0. exponentialRampToValue-
+  //               AtTime(0, t) THROWS in Web Audio (threat T-06-19); a small
+  //               positive floor is inaudible and legal. Per-recipe rather than
+  //               global so the loud effects can floor higher than the quiet ones.
+  //
+  // THE SIX ARE TUNED TO READ AS DIFFERENT INSTRUMENTS, not as one sound at
+  // different pitches — different layers, different waveforms, different filter
+  // types, different sweep directions and decays an order of magnitude apart:
+  SFX: {
+    // A short bright blip with a noise transient and a fast decay. High and dry.
+    pistol: {
+      tone: true, wave: 'square', freqStart: 900, freqEnd: 160,
+      noise: true, noiseLevel: 0.55,
+      filter: 'lowpass', cutoffStart: 3200, cutoffEnd: 900, q: 0.9,
+      gain: 0.50, attack: 0.004, decay: 0.12, epsilon: 0.0009
+    },
+    // A louder low-passed NOISE BURST with no tone at all and a decay three and a
+    // half times the pistol's — the weight comes from the length, not the volume.
+    shotgun: {
+      tone: false, wave: 'square', freqStart: 0, freqEnd: 0,
+      noise: true, noiseLevel: 1.0,
+      filter: 'lowpass', cutoffStart: 1400, cutoffEnd: 260, q: 1.1,
+      gain: 0.72, attack: 0.006, decay: 0.42, epsilon: 0.0007
+    },
+    // A growly DESCENDING sawtooth through a resonant bandpass, pitched into the
+    // gap between the two weapons so the player never mistakes an incoming
+    // fireball for their own gun. Tone only — no noise layer.
+    enemyAttack: {
+      tone: true, wave: 'sawtooth', freqStart: 320, freqEnd: 90,
+      noise: false, noiseLevel: 0,
+      filter: 'bandpass', cutoffStart: 700, cutoffEnd: 240, q: 3.2,
+      gain: 0.42, attack: 0.020, decay: 0.30, epsilon: 0.0006
+    },
+    // Noise plus a long falling pitch — the classic death-cry shape, and the
+    // longest decay in the table.
+    enemyDeath: {
+      tone: true, wave: 'triangle', freqStart: 420, freqEnd: 60,
+      noise: true, noiseLevel: 0.7,
+      filter: 'lowpass', cutoffStart: 2000, cutoffEnd: 180, q: 0.7,
+      gain: 0.60, attack: 0.010, decay: 0.55, epsilon: 0.0005
+    },
+    // The one ASCENDING sweep in the table, unfiltered and quiet: a bright little
+    // triangle blip. Rising pitch is the universal "you gained something" idiom,
+    // and being the only rising effect makes it unmistakable.
+    pickup: {
+      tone: true, wave: 'triangle', freqStart: 620, freqEnd: 1500,
+      noise: false, noiseLevel: 0,
+      filter: null, cutoffStart: 0, cutoffEnd: 0, q: 0,
+      gain: 0.34, attack: 0.005, decay: 0.18, epsilon: 0.0008
+    },
+    // A low filtered THUD: a sine barely above the bottom of hearing under heavily
+    // low-passed noise. Felt more than heard, which is the point.
+    playerHurt: {
+      tone: true, wave: 'sine', freqStart: 180, freqEnd: 70,
+      noise: true, noiseLevel: 0.8,
+      filter: 'lowpass', cutoffStart: 600, cutoffEnd: 140, q: 0.8,
+      gain: 0.66, attack: 0.008, decay: 0.26, epsilon: 0.0004
+    },
+    // The dry click. Not one of AUD-02's six, but the out-of-ammo message already
+    // exists (06-02) and a click costs one more record: the trigger has to answer
+    // even when the magazine does not. A tiny HIGH-passed tick — the only highpass
+    // in the table and the shortest decay by a factor of two.
+    dryClick: {
+      tone: false, wave: 'square', freqStart: 0, freqEnd: 0,
+      noise: true, noiseLevel: 0.5,
+      filter: 'highpass', cutoffStart: 2600, cutoffEnd: 2000, q: 0.6,
+      gain: 0.22, attack: 0.001, decay: 0.05, epsilon: 0.0010
+    }
+  }
 };
