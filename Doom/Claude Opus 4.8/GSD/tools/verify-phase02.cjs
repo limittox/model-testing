@@ -43,6 +43,25 @@ const Framebuffer = s.Framebuffer;
 const raf = h.raf;
 
 // ---------------------------------------------------------------------------
+// SCOPE ISOLATION (added in 05-01; NO assertion below is changed by it).
+//
+// This harness is the PLAYER KINEMATICS contract set: clamped dt, frame-rate
+// independence, no tunneling, wall sliding, camera invariants. From Phase 5 the
+// game loop also simulates enemies that hunt and shoot the player, and its
+// long randomized drives (6000 frames of continuous motion ~= 100 simulated
+// seconds) reliably reduce the player to 0 health. A dead player is
+// DELIBERATELY inert — Game.step substitutes the frozen zero intent (D-04) — so
+// every "the player moved" assertion after that point would fail for a reason
+// that has nothing to do with kinematics.
+//
+// Truncating Enemies.list IN PLACE takes the enemies out of the AI's update set
+// while leaving them in Entities.list as the static billboards Phase 4 rendered.
+// Enemy behaviour is proven end to end in tools/verify-combat.cjs, which is
+// where it belongs; this file keeps measuring exactly what it always measured.
+// ---------------------------------------------------------------------------
+if (s.Enemies && Array.isArray(s.Enemies.list)) s.Enemies.list.length = 0;
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 const near = (a, b, tol) => Math.abs(a - b) <= tol;

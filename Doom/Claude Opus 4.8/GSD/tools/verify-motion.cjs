@@ -44,6 +44,21 @@ const Player = s.Player;
 const Game = s.Game;
 const raf = h.raf;
 
+// ---------------------------------------------------------------------------
+// SCOPE ISOLATION (added in 05-01; NO assertion below is changed by it).
+//
+// This harness is the PLAYER MOTION contract set. From Phase 5 the game loop
+// also simulates enemies that hunt and shoot the player, and a drive of several
+// thousand frames can reduce the player to 0 health — at which point a dead
+// player is DELIBERATELY inert (Game.step substitutes the frozen zero intent per
+// D-04) and every "the player moved" assertion would fail for a reason that has
+// nothing to do with motion. Truncating Enemies.list IN PLACE removes the
+// enemies from the AI's update set while leaving them in Entities.list as the
+// static billboards Phase 4 rendered. Enemy behaviour is proven end to end in
+// tools/verify-combat.cjs.
+// ---------------------------------------------------------------------------
+if (s.Enemies && Array.isArray(s.Enemies.list)) s.Enemies.list.length = 0;
+
 // A scripted intent source. readIntent() returns the CURRENT intent object each
 // frame; the harness mutates `intent` between drives. reset() proves the loop's
 // focus/visibility reset path only calls it when present.

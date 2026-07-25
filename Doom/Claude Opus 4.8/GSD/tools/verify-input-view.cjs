@@ -69,13 +69,17 @@ const step = (ms) => raf.step(ms);
 // ===========================================================================
 (function () {
   // Phase 3 inserted js/raycaster.js after topdown and before game; Phase 4
-  // inserted js/entities.js after raycaster and before game (13 scripts).
+  // inserted js/entities.js after raycaster and before game; Phase 5 inserted
+  // js/combat.js then js/enemies.js after entities and before game (15 scripts).
+  // The order is load-bearing: enemies.js adopts the entities entities.js built
+  // and calls Combat.damagePlayer, and game.js dispatches both.
   const expected = ['config', 'framebuffer', 'textures', 'sprites', 'preview',
-    'level', 'player', 'input', 'topdown', 'raycaster', 'entities', 'game', 'main'];
+    'level', 'player', 'input', 'topdown', 'raycaster', 'entities', 'combat',
+    'enemies', 'game', 'main'];
   const got = h.scriptOrder.map((src) => src.replace(/^js\//, '').replace(/\.js$/i, ''));
   const orderOk = got.length === expected.length &&
     expected.every((name, i) => got[i] === name);
-  assert(orderOk, '1a. index.html loads the 13 scripts in the exact shipped order (entities after raycaster, before game)');
+  assert(orderOk, '1a. index.html loads the 15 scripts in the exact shipped order (combat + enemies after entities, before game)');
 
   // Classic scripts only: no module loader anywhere in the shipped script tags.
   const classicOk = !/<script\b[^>]*\btype\s*=\s*"module"/i.test(h.html);

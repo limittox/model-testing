@@ -44,6 +44,31 @@
  *
  * BEHAVIOUR fields (health/state/AI) are NOT here — Phase 5 owns them. Phase 4
  * renders static billboards only.
+ *
+ * PHASE 5 EXTENSIONS TO THE ENTITY CONTRACT (05-CONTEXT decision 1) — three
+ * additions, no change to the projection, the sort, the occlusion test or the
+ * shading:
+ *
+ *   (a) AN ENTITY'S `sprite` IS NOW CHOSEN PER FRAME by its owning behaviour
+ *       module. A chasing enemy alternates its two walk frames, an attacking one
+ *       shows the attack pose. This pass keeps doing exactly what it always did —
+ *       look the name up in Sprites.map every frame — which is why animation
+ *       needed no render change at all.
+ *
+ *   (b) AN ENTITY WHOSE `active` IS STRICTLY false IS SKIPPED. That is how a
+ *       despawned projectile (and, from 05-04, a collected pickup) stops drawing
+ *       while its object stays in the list for reuse. The test is STRICT (===
+ *       false), never a truthiness test: the Phase 4 harness constructs entity
+ *       literals that carry no `active` property at all, and those must keep
+ *       rendering.
+ *
+ *   (c) A BEHAVIOUR MODULE ADOPTS THE ENTITIES build() CREATED — it does not
+ *       append its own. build() copies each descriptor's `kind` onto the entity,
+ *       and that field is the ADOPTION HANDLE: js/enemies.js finds the entities
+ *       it owns by scanning Entities.list for kind 'enemy', so exactly ONE
+ *       billboard exists per spawn marker. Appending a second object instead
+ *       would leave an inert ghost frozen at every spawn point, drawn on top of
+ *       the live enemy. Plan 05-04 adopts pickups by the identical mechanism.
  */
 
 var Entities = {
@@ -54,12 +79,18 @@ var Entities = {
   // Spawn-type -> billboard descriptor (04-CONTEXT decision 1). 'exit' and
   // 'player' are intentionally absent: no exit sprite exists this phase (Phase 6
   // owns exit markers) and the player is the camera, not a billboard.
+  //
+  // `kind` (Phase 5) is the ADOPTION HANDLE build() copies onto every entity: it
+  // is how a behaviour module finds the entities it owns without walking
+  // Level.spawns a second time and without creating a duplicate object. The
+  // enemy descriptor names the IDLE animation frame, which the AI then swaps per
+  // frame; 'enemy' remains a live alias for that same asset for Phase 4 callers.
   SPRITE_FOR: {
-    enemy:   { sprite: 'enemy',  scale: 1.0, onFloor: true },
-    health:  { sprite: 'pickup', scale: 0.5, onFloor: true },
-    armor:   { sprite: 'pickup', scale: 0.5, onFloor: true },
-    ammo:    { sprite: 'pickup', scale: 0.5, onFloor: true },
-    shotgun: { sprite: 'pickup', scale: 0.5, onFloor: true }
+    enemy:   { kind: 'enemy',  sprite: 'enemyIdle', scale: 1.0, onFloor: true },
+    health:  { kind: 'pickup', sprite: 'pickup',    scale: 0.5, onFloor: true },
+    armor:   { kind: 'pickup', sprite: 'pickup',    scale: 0.5, onFloor: true },
+    ammo:    { kind: 'pickup', sprite: 'pickup',    scale: 0.5, onFloor: true },
+    shotgun: { kind: 'pickup', sprite: 'pickup',    scale: 0.5, onFloor: true }
   },
 
   // Small positive depth clip: a sprite at or behind the camera plane
@@ -104,6 +135,7 @@ var Entities = {
       out.push({
         x: sp.x,                         // cell-centre world coords (from Level)
         y: sp.y,
+        kind: desc.kind,                 // the Phase 5 adoption handle
         sprite: desc.sprite,
         scale: desc.scale,
         onFloor: desc.onFloor
@@ -185,6 +217,11 @@ var Entities = {
     var k;
     for (k = 0; k < n; k++) {
       e = list[order[k]];
+      // ACTIVE SKIP (Phase 5). A despawned projectile / collected pickup stays in
+      // the list (so the pool never reallocates) but draws nothing. STRICT
+      // comparison: a Phase 4 entity literal carrying no `active` property at all
+      // must still render, which a truthiness test would silently break.
+      if (e.active === false) continue;
       var relX = e.x - px, relY = e.y - py;
 
       // Camera-space coordinates. transformY is the sprite DEPTH (perpendicular

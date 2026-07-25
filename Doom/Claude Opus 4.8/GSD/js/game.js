@@ -16,6 +16,15 @@
  *       cell. A non-finite or negative raw delta coerces to 0 — a backwards clock
  *       must never move the player backwards.
  *
+ *   (1b) Game.time IS SIMULATION TIME, OWNED BY step — NOT frame time. The
+ *       accumulation lives at the top of Game.step (Phase 5 moved it there out of
+ *       Game.frame). Through the rAF loop this is behaviour-identical, because a
+ *       resync frame takes dt 0 and never called step anyway. What it buys is
+ *       that simulated time ALSO advances under a DIRECT Game.step(dt) call:
+ *       without it, Combat.lastDamageAt and plan 05-04's message-age arithmetic
+ *       would be frozen at 0 in every harness scenario that needs an exact delta,
+ *       and every age-based proof in this phase would pass vacuously.
+ *
  *   (2) A PRESENT HAPPENS EXACTLY ONCE PER FRAME — INCLUDING RESYNC FRAMES.
  *       A resync frame (set by start() and by a tab refocus) skips ONLY the step;
  *       it still renders and still presents, so the first frame after start is
@@ -91,8 +100,10 @@ var Game = {
 
     Game.last = now;
     Game.dt = dt;
-    Game.time += dt;
     Game.frames += 1;
+    // NOTE: Game.time is NOT accumulated here — it is simulation time and is
+    // accumulated at the top of Game.step (contract 1b). Behaviour through this
+    // loop is identical: a resync frame takes dt 0 and skips the step anyway.
 
     // Step only on a non-resync frame; render and present ALWAYS.
     if (!isResync) Game.step(dt);
@@ -104,9 +115,31 @@ var Game = {
   // STEP — advance the simulation. Reads intent through the seam.
   // ===========================================================================
   Game.step = function (dt) {
+    // SIMULATION TIME (contract 1b). Accumulated here so it advances under BOTH
+    // the rAF loop and a direct Game.step(dt) call. Guarded so one bad delta
+    // cannot poison every age comparison that reads it.
+    if (isFinite(dt) && dt > 0) Game.time += dt;
+
     var intent = Game.input ? Game.input.readIntent() : Game.ZERO_INTENT;
+
+    // A DEAD PLAYER IS INERT (05-CONTEXT D-04). The intent is still SAMPLED (so
+    // the input source still drains its accumulated mouse delta and cannot
+    // release a stored turn on respawn), but the FROZEN zero intent is what
+    // reaches the simulation: a dead player neither moves, turns nor fires while
+    // the enemies and projectiles around it keep simulating. This substitution
+    // is the entire mechanism behind Combat.dead — the flag does nothing on its
+    // own.
+    if (typeof Combat !== 'undefined' && Combat.dead) intent = Game.ZERO_INTENT;
+
     Player.update(dt, intent);
-    // Later phases add entity and weapon updates here.
+
+    // Entity simulation. Enemies first (they may release a projectile this
+    // frame), then the projectiles they own. Guarded by typeof so game.js stays
+    // loadable without the Phase 5 modules. Later phases add weapon updates here.
+    if (typeof Enemies !== 'undefined') {
+      Enemies.update(dt);
+      Enemies.updateProjectiles(dt);
+    }
   };
 
   // ===========================================================================

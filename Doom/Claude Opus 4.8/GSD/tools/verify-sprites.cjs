@@ -136,20 +136,40 @@ function setEntities(list) {
     '0b. main.js wired Raycaster.spritePass = Entities.render');
   assert(Array.isArray(Entities.list) && Entities.list.length > 0,
     '0c. Entities.list is non-empty, built from Level.spawns (' + Entities.list.length + ' billboards)');
-  // Every built entity resolves to a real sprite asset and carries no behaviour
-  // fields (Phase 5 owns those) — the static-billboard contract.
-  let allValid = true, noBehaviour = true;
+  // Every built entity resolves to a real sprite asset.
+  let allValid = true;
   for (const e of Entities.list) {
     if (!Sprites.map[e.sprite]) allValid = false;
-    if ('health' in e || 'state' in e || 'ai' in e) noBehaviour = false;
   }
-  assert(allValid, '0d. every entity maps to a real Sprites.map asset (enemy/pickup)');
-  assert(noBehaviour, '0e. entities carry no behaviour fields (health/state/ai) — Phase 5 owns them');
+  assert(allValid, '0d. every entity maps to a real Sprites.map asset (enemy frame / pickup / fireball)');
+
+  // 0e — THE EXPECTATION THAT LEGITIMATELY MOVED (05-01). Phase 4 asserted that
+  // NO entity carried behaviour fields, with the standing note "Phase 5 owns
+  // them". Phase 5 now owns them, so the claim is STRENGTHENED rather than
+  // dropped: behaviour fields must appear on EXACTLY the enemy-kind entities (the
+  // ones the AI adopted) and on nothing else. A pickup or projectile that
+  // sprouted enemy state, or an enemy that failed to get any, both fail here.
+  let behaviourExactly = true, offender = null;
+  for (const e of Entities.list) {
+    const hasBehaviour = ('health' in e) || ('state' in e);
+    const shouldHave = e.kind === 'enemy';
+    if (hasBehaviour !== shouldHave) { behaviourExactly = false; offender = e.kind + '/' + e.sprite; }
+  }
+  assert(behaviourExactly,
+    '0e. behaviour fields (health/state) exist on EXACTLY the enemy-kind entities — Phase 5 owns ' +
+    'them and attached them by adoption' + (behaviourExactly ? '' : ' — offender ' + offender));
 })();
 
 // ===========================================================================
-// 1. BUILD IS SPAWN-DERIVED AND IDEMPOTENT. enemy spawns -> 'enemy' scale 1;
-//    health/armor/ammo/shotgun -> 'pickup' scale 0.5; exit/player skipped.
+// 1. BUILD IS SPAWN-DERIVED AND IDEMPOTENT. enemy spawns -> the enemy IDLE frame
+//    at scale 1; health/armor/ammo/shotgun -> 'pickup' scale 0.5; exit/player
+//    skipped.
+//
+//    THE COUNT EXPECTATION THAT LEGITIMATELY MOVED (05-01): the built list is now
+//    the spawn-derived billboards PLUS CONFIG.PROJ_POOL preallocated projectile
+//    entities. The spawn-derived count itself is UNCHANGED — Enemies.build ADOPTS
+//    the enemy billboards rather than appending its own, so the pool is the only
+//    legitimate delta. Any OTHER excess means the AI is duplicating enemies.
 // ===========================================================================
 (function () {
   const spawns = Level.spawns;
@@ -159,18 +179,40 @@ function setEntities(list) {
         sp.type === 'ammo' || sp.type === 'shotgun') expected++;
   }
   const before = Entities.list.length;
-  Entities.build();  // idempotent rebuild
-  assert(Entities.list.length === before && Entities.list.length === expected,
-    '1a. build() is spawn-derived and idempotent (' + expected + ' billboards, exit/player skipped)');
+  assert(before === expected + CONFIG.PROJ_POOL,
+    '1a-i. the built list is the spawn-derived billboards PLUS the projectile pool (' +
+    expected + ' + ' + CONFIG.PROJ_POOL + ' = ' + (expected + CONFIG.PROJ_POOL) +
+    ', got ' + before + ') — exit/player skipped, no duplicated enemy');
 
-  // Type mapping spot-check: an enemy spawn -> scale 1 onFloor; a pickup -> 0.5.
-  let enemyOk = true, pickupOk = true;
+  // Idempotent rebuild through the Phase 5 owner (Enemies.build calls
+  // Entities.build itself, adopts, and re-preallocates the pool).
+  s.Enemies.build();
+  assert(Entities.list.length === before,
+    '1a-ii. rebuilding is idempotent: the list length is unchanged (' + Entities.list.length + ')');
+
+  // Type mapping spot-check: an enemy spawn -> the idle frame at scale 1 onFloor;
+  // a pickup -> 0.5; a pooled projectile -> the fireball at PROJ_SCALE, NOT floor-
+  // anchored, and inactive until fired.
+  let enemyOk = true, pickupOk = true, projOk = true, enemySeen = 0, projSeen = 0;
   for (const e of Entities.list) {
-    if (e.sprite === 'enemy' && !(e.scale === 1.0 && e.onFloor === true)) enemyOk = false;
+    if (e.sprite === 'enemyIdle') {
+      enemySeen++;
+      if (!(e.scale === 1.0 && e.onFloor === true)) enemyOk = false;
+    }
     if (e.sprite === 'pickup' && !(e.scale === 0.5 && e.onFloor === true)) pickupOk = false;
+    if (e.kind === 'projectile') {
+      projSeen++;
+      if (!(e.sprite === 'fireball' && e.scale === CONFIG.PROJ_SCALE &&
+            e.onFloor === false && e.active === false)) projOk = false;
+    }
   }
-  assert(enemyOk, '1b. enemy billboards are scale 1.0, onFloor true');
+  assert(enemyOk && enemySeen > 0,
+    '1b. enemy billboards name the IDLE animation frame at scale 1.0, onFloor true (' +
+    enemySeen + ' found)');
   assert(pickupOk, '1c. pickup billboards are scale 0.5, onFloor true');
+  assert(projOk && projSeen === CONFIG.PROJ_POOL,
+    '1c-ii. all ' + CONFIG.PROJ_POOL + ' pooled projectiles are the fireball at PROJ_SCALE, ' +
+    'not floor-anchored, and start INACTIVE (' + projSeen + ' found)');
 
   // No 'exit'/'player' leaked into the list.
   let noExit = true;

@@ -76,7 +76,28 @@
                               occlusion cut + alpha-key transparency. Reads
                               Framebuffer/Player/Level/Sprites/Raycaster; read by
                               nothing before game.js.
-     12. js/game.js         — defines Game: the requestAnimationFrame loop with
+     12. js/combat.js       — defines Combat: the PLAYER's combat state (health,
+                              armor, ammo, weapon selection, the dead flag) and
+                              damagePlayer(), which owns the LOCKED armor
+                              absorption formula min(armor, floor(dmg/3)). Split
+                              from js/player.js on purpose: player.js owns the
+                              POSE the renderer depends on, this file owns the
+                              STATS, so combat state never reaches the render
+                              path. Reads CONFIG and Game.time; read by
+                              enemies.js (projectile impact), game.js (the dead
+                              flag) and Phase 6's HUD.
+     13. js/enemies.js      — defines Enemies: the idle/chase/attack state
+                              machine, the chase movement (through the SHARED
+                              per-axis slide Player.slideMove, so an enemy
+                              collides with walls with the player's exact
+                              semantics), and the preallocated fireball pool.
+                              build() ADOPTS the enemy billboards entities.js
+                              already emitted — matched by their `kind` field —
+                              and never appends a second object, so exactly one
+                              billboard exists per spawn marker. Dispatched from
+                              Game.step. Needs CONFIG + Level + Player +
+                              Entities + Combat.
+     14. js/game.js         — defines Game: the requestAnimationFrame loop with
                               the CLAMPED delta-time (CONFIG.DT_MAX), the refocus
                               resync, and the two seams. Game.input (an intent
                               source) and Game.view (a buf32 writer that does NOT
@@ -85,17 +106,20 @@
                               lives in CONFIG.DT_MAX; the single Framebuffer
                               present() lives in Game.render() so the once-per-
                               frame blit contract survives every view swap.
-     13. js/main.js         — entry point (needs CONFIG + Framebuffer + assets +
+     15. js/main.js         — entry point (needs CONFIG + Framebuffer + assets +
                               Level + Player + Input + TopDown + Raycaster +
-                              Entities + Game): builds the level, spawns the
-                              player, builds Entities from Level.spawns, wires
+                              Entities + Combat + Enemies + Game): builds the
+                              level, spawns the player, resets the player's combat
+                              state and builds the enemies (Enemies.build() calls
+                              Entities.build() itself, then adopts), wires
                               Game.input = Input and Game.view = Raycaster (with
                               TopDown.ENABLED = false) and Raycaster.spritePass =
                               Entities.render, attaches resync triggers, starts the
                               loop.
       i.e. config -> framebuffer -> textures -> sprites -> preview -> level ->
-      player -> input -> topdown -> raycaster -> entities -> game -> main. Order
-      encodes the dependency graph: later files extend earlier globals.
+      player -> input -> topdown -> raycaster -> entities -> combat -> enemies ->
+      game -> main. Order encodes the dependency graph: later files extend earlier
+      globals.
 
       NOT LOADED HERE: everything under tools/. Those are Node-only .cjs
       verification harnesses; the browser never sees them, which is why the
@@ -128,6 +152,8 @@
   <script src="js/topdown.js"></script>
   <script src="js/raycaster.js"></script>
   <script src="js/entities.js"></script>
+  <script src="js/combat.js"></script>
+  <script src="js/enemies.js"></script>
   <script src="js/game.js"></script>
   <script src="js/main.js"></script>
 </body>

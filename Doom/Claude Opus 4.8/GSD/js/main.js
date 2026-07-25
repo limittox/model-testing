@@ -11,6 +11,12 @@
  * Preview.blit remains the reference color-keyed blit for Phase 4. The resize
  * handler only resizes the framebuffer; the loop repaints on the very next frame,
  * so no manual repaint is needed any more.
+ *
+ * PHASE 5 ADDITIONS: the bare Entities.build() call is replaced by Combat.reset()
+ * (seed the player's health/armor/ammo from CONFIG) followed by Enemies.build().
+ * Enemies.build() calls Entities.build() ITSELF and then ADOPTS the enemy
+ * billboards it produced, so calling both here would rebuild the list twice for
+ * nothing. Everything else about the boot sequence is unchanged.
  */
 
 window.addEventListener('load', function () {
@@ -27,11 +33,13 @@ window.addEventListener('load', function () {
   Level.build();
   Player.spawn();
 
-  // Instantiate the static billboard list from the level's spawn markers. Built
-  // AFTER Level.build() (needs Level.spawns) and Sprites.build() (needs the
-  // sprite atlas). Phase 4 renders these as camera-facing billboards; Phase 5
-  // gives them behaviour.
-  Entities.build();
+  // Seed the player's combat state, then build the world's entities. Built AFTER
+  // Level.build() (needs Level.spawns) and Sprites.build() (needs the sprite
+  // atlas). Enemies.build() runs Entities.build() itself and then ADOPTS the
+  // enemy billboards it emitted — attaching behaviour to those exact objects
+  // rather than appending duplicates — and preallocates the fireball pool.
+  Combat.reset();
+  Enemies.build();
 
   // Wire the two seams. Input feeds intent (keyboard + pointer-lock mouse) into
   // Game.step; Game.view feeds the rendered frame into Game.render.
