@@ -1249,4 +1249,229 @@ const SHOTGUN_EV = Weapons.TABLE.shotgun.sound;
 })();
 
 // ===========================================================================
+// 3. THE SELF-CONTAINMENT GATE (AUD-01, threat T-06-22).
+//
+// AUD-01 says SYNTHESIZED and no audio files; the project's hard constraint says
+// nothing is fetched AT ALL and the page runs from file://. This section is the
+// whole-surface version of 1k: index.html's references, every network primitive,
+// and the shipped script list.
+// ===========================================================================
+
+// --- 3a: index.html references only LOCAL RELATIVE paths -------------------
+(function () {
+  const refs = h.resourceRefs;
+  const bad = refs.filter((r) =>
+    /^[a-z][a-z0-9+.-]*:/i.test(r) ||   // any protocol (http:, data:, blob:, file:)
+    /^\/\//.test(r) ||                  // protocol-relative
+    /^\//.test(r));                     // absolute from the server root
+  assert(refs.length > 0 && bad.length === 0,
+    '3a-i. every one of index.html\'s ' + refs.length + ' src=/href= references is a ' +
+    'LOCAL RELATIVE path — no protocol, no protocol-relative prefix, no leading slash' +
+    (bad.length ? ' — OFFENDERS ' + bad.join(', ') : ''));
+
+  // CONTROL: the reference reader is really reading references.
+  assert(refs.indexOf('style.css') >= 0 && refs.some((r) => /^js\//.test(r)),
+    '3a-ii. CONTROL: the SAME reader found style.css and the js/ scripts among those ' +
+    'references — 3a-i is not passing against an empty list');
+
+  // And every referenced file actually exists on disk beside index.html, so "local
+  // relative" is not satisfied by a path that would 404 into a network error.
+  const missing = refs.filter((r) => !fs.existsSync(path.join(GAME_DIR, r)));
+  assert(missing.length === 0,
+    '3a-iii. and every referenced path EXISTS on disk beside index.html (' +
+    refs.length + ' checked)' + (missing.length ? ' — MISSING ' + missing.join(', ') : ''));
+})();
+
+// --- 3b: no network primitive anywhere under js/ ---------------------------
+const NETWORK_TOKENS = [
+  { label: 'fetch(', re: /\bfetch\s*\(/ },
+  { label: 'XMLHttpRequest', re: /\bXMLHttpRequest\b/ },
+  { label: 'decodeAudioData', re: /\bdecodeAudioData\b/ },
+  { label: 'new Audio(', re: /\bnew\s+Audio\s*\(/ },
+  { label: 'importScripts', re: /\bimportScripts\b/ },
+  { label: 'dynamic import(', re: /\bimport\s*\(/ },
+  { label: 'import/export statement', re: /^\s*(?:import|export)\s+/m },
+  { label: 'require(', re: /\brequire\s*\(/ },
+  { label: 'WebSocket', re: /\bWebSocket\b/ },
+  { label: 'EventSource', re: /\bEventSource\b/ },
+  { label: 'navigator.sendBeacon', re: /\bsendBeacon\b/ },
+  { label: 'audio/media file extension', re: /\.(mp3|wav|ogg|oga|m4a|aac|flac|opus|weba|mp4|webm)\b/i },
+  { label: 'font file extension', re: /\.(woff2?|ttf|otf|eot)\b/i },
+  { label: '@font-face', re: /@font-face/i }
+];
+
+(function () {
+  const hits = [];
+  for (const f of STRIPPED) {
+    for (const t of NETWORK_TOKENS) if (t.re.test(f.src)) hits.push(f.file + ':' + t.label);
+  }
+  assert(hits.length === 0,
+    '3b. AUD-01 / T-06-22: a comment-stripped scan of all ' + JS_FILES.length +
+    ' files under js/ finds ZERO of the ' + NETWORK_TOKENS.length + ' network and ' +
+    'media-file tokens (fetch, XMLHttpRequest, decodeAudioData, the Audio ' +
+    'constructor, importScripts, import/export/require, WebSocket, EventSource, ' +
+    'sendBeacon, audio/video/font extensions, @font-face)' +
+    (hits.length ? ' — FOUND ' + hits.join(', ') : ''));
+
+  // Comments are stripped so a header paragraph EXPLAINING the rule cannot fail its
+  // own rule. Prove that stripping actually happens, and that it is why the scan is
+  // clean — the raw source DOES contain these words, in prose.
+  const rawHits = JS_FILES.filter((f) => {
+    const raw = fs.readFileSync(path.join(JS_DIR, f), 'utf8');
+    return /\bdecodeAudioData\b|\bfetch\b/.test(raw);
+  });
+  assert(rawHits.length > 0,
+    '3b-0. setup: the UNSTRIPPED source does mention these words in prose (' +
+    rawHits.join(', ') + ') — which is exactly why the scan must strip comments first');
+})();
+
+// --- 3c: the CONTROL for 3b ------------------------------------------------
+(function () {
+  const PRESENT = [
+    { label: 'AudioContext', re: /\bAudioContext\b/, where: 'sound.js' },
+    { label: 'webkitAudioContext', re: /\bwebkitAudioContext\b/, where: 'sound.js' },
+    { label: 'createDynamicsCompressor', re: /\bcreateDynamicsCompressor\b/, where: 'sound.js' },
+    { label: 'createBuffer', re: /\bcreateBuffer\b/, where: 'sound.js' },
+    { label: 'putImageData', re: /\bputImageData\b/, where: 'framebuffer.js' }
+  ];
+  const found = [];
+  const missed = [];
+  for (const t of PRESENT) {
+    const f = STRIPPED.find((x) => x.file === t.where);
+    if (f && t.re.test(f.src)) found.push(t.label);
+    else missed.push(t.label + ' in ' + t.where);
+  }
+  assert(missed.length === 0,
+    '3c. CONTROL for 3b: the SAME stripped scan DOES find [' + found.join(', ') +
+    '] in the same files — the scanner reads real stripped source, not an empty ' +
+    'string' + (missed.length ? ' — MISSED ' + missed.join(', ') : ''));
+})();
+
+// --- 3d: the shipped script list is unchanged and classic ------------------
+(function () {
+  // The 19 names 06-01 established. This plan adds NO script: the engine replaced
+  // js/sound.js's internals in place.
+  const expected = ['config', 'framebuffer', 'textures', 'sprites', 'preview',
+    'level', 'player', 'input', 'topdown', 'raycaster', 'entities', 'combat',
+    'enemies', 'weapons', 'sound', 'pickups', 'hud', 'game', 'main'];
+  const got = h.scriptOrder.map((src) => src.replace(/^js\//, '').replace(/\.js$/i, ''));
+  const same = got.length === expected.length && expected.every((n, i) => got[i] === n);
+  assert(same,
+    '3d-i. the shipped script list is UNCHANGED at the ' + expected.length +
+    ' names 06-01 established (got ' + got.length + ': ' + got.join(',') + ') — the ' +
+    'audio engine replaced js/sound.js\'s internals in place and added no script');
+  assert(!/<script\b[^>]*\btype\s*=\s*"module"/i.test(h.html),
+    '3d-ii. no shipped <script> tag carries a module type — ES modules are blocked by ' +
+    'CORS on the file: scheme, which is why classic scripts are a hard constraint');
+  // Every js/ file on disk is in the shipped list, so nothing was added under js/
+  // without being loaded (and nothing is loaded that does not exist).
+  const listed = got.map((n) => n + '.js').sort();
+  const onDisk = JS_FILES.slice().sort();
+  assert(listed.length === onDisk.length && listed.every((n, i) => n === onDisk[i]),
+    '3d-iii. the shipped list and the contents of js/ are the SAME ' + onDisk.length +
+    ' files — no orphan module and no unloaded file');
+})();
+
+// ===========================================================================
+// 4. NO CHURN IN THE HOT PATH (threat T-06-18).
+//
+// Sounds fire several times a second during a fight. This section drives 2000
+// frames of SUSTAINED COMBAT with the trigger held, the AI live and the audio stub
+// recording everything, and asserts that nothing grew.
+// ===========================================================================
+(function () {
+  // A scripted input source with the trigger HELD — the same technique
+  // verify-combat uses. Game.step reads readIntent() once per frame.
+  const held = intent(true, 0);
+  Game.input = {
+    intent: held,
+    readIntent: function () { return this.intent; },
+    reset: function () {}
+  };
+
+  Game.restart();                    // a full live world: 8 enemies, 9 pickups
+  Game.setState(S.PLAYING);
+  placeAt(Level.LANDMARKS.openCell.x, Level.LANDMARKS.openCell.y, 1, 0);
+  Sound.reset();
+
+  const snap = {
+    entities: Entities.list.length,
+    pool: Enemies.projectiles.length,
+    enemies: Enemies.list.length,
+    pickups: Pickups.list.length,
+    ring: Sound.ring,
+    ringLen: Sound.ring.length
+  };
+  const nodes0 = rec.nodes.length;
+  const buffers0 = rec.buffersCreated;
+  const sources0 = rec.counts.bufferSource || 0;
+  const sched0 = rec.schedules.length;
+
+  const FRAMES = 2000;
+  let threw = null;
+  try {
+    for (let i = 0; i < FRAMES; i++) {
+      // Keep the fight going: a dead player is frozen by Game.step's ZERO_INTENT
+      // substitution and an empty weapon stops making noise. Both are scenario
+      // upkeep, not an assertion adjustment.
+      if (i % 30 === 0) {
+        Combat.dead = false;
+        Combat.health = Combat.maxHealth;
+        Combat.ammo.bullets = 9999;
+        if (i % 120 === 0) Enemies.reset();      // resurrect the level to keep dying
+      }
+      Game.step(FRAME_DT);
+    }
+  } catch (err) { threw = err; }
+
+  const playsMade = Sound.count;
+  const sources = (rec.counts.bufferSource || 0) - sources0;
+
+  assert(threw === null && playsMade > 100,
+    '4-0. setup: ' + FRAMES + ' frames of sustained combat completed WITHOUT A THROW ' +
+    'and produced ' + playsMade + ' sound events (' + (rec.nodes.length - nodes0) +
+    ' audio nodes)' + (threw ? ' — THREW: ' + threw.message : ''));
+
+  assert(Entities.list.length === snap.entities &&
+    Enemies.projectiles.length === snap.pool &&
+    Enemies.list.length === snap.enemies &&
+    Pickups.list.length === snap.pickups,
+    '4a-i. across those frames Entities.list (' + Entities.list.length + '), the ' +
+    'projectile pool (' + Enemies.projectiles.length + '), Enemies.list (' +
+    Enemies.list.length + ') and Pickups.list (' + Pickups.list.length + ') are all ' +
+    'UNCHANGED in length — nothing was appended and nothing was spliced');
+
+  assert(Sound.ring === snap.ring && Sound.ring.length === snap.ringLen,
+    '4a-ii. Sound.ring is the SAME array by reference with the same length (' +
+    Sound.ring.length + ') after ' + playsMade + ' recorded events — a preallocated ' +
+    'ring, never a growing log');
+
+  assert(rec.buffersCreated - buffers0 === 0 && rec.buffersCreated === 1,
+    '4b-i. T-06-18: the white-noise buffer was created EXACTLY ONCE for the whole ' +
+    'process (' + rec.buffersCreated + ' createBuffer call) — the noise layers replay ' +
+    'a shared buffer instead of filling a new one per shot');
+
+  assert(sources >= 100 && sources > 20 * 1,
+    '4b-ii. CONTROL: the buffer-SOURCE counter meanwhile rose by ' + sources +
+    ' — the one buffer really is being replayed, rather than 4b-i passing because ' +
+    'the noise layers never ran');
+
+  const newSched = rec.schedules.slice(sched0);
+  const nonFinite = newSched.filter((sc) => !isFinite(sc.value) || !isFinite(sc.time));
+  assert(newSched.length > 0 && nonFinite.length === 0,
+    '4c-i. every one of the ' + newSched.length + ' parameter values and times scheduled ' +
+    'during those frames is FINITE — no NaN reached an AudioParam' +
+    (nonFinite.length ? ' — ' + nonFinite.length + ' OFFENDERS' : ''));
+
+  const negGain = newSched.filter((sc) => sc.param === 'gain' && !(sc.value > 0));
+  assert(negGain.length === 0,
+    '4c-ii. and every gain value scheduled under sustained combat is still strictly ' +
+    'positive (' + newSched.filter((sc) => sc.param === 'gain').length + ' gain ' +
+    'schedules checked) — T-06-19 holds in the hot path, not just in isolation');
+
+  // Restore the world to a plain state so nothing downstream inherits the fight.
+  Game.input = null;
+})();
+
+// ===========================================================================
 finish("ALL_AUDIO_CONTRACTS_PASS");
