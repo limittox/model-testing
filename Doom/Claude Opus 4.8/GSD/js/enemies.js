@@ -137,6 +137,21 @@ var Enemies = {
   // the frame count is derived from it everywhere (the corpse latches when the
   // index runs past the end) and adding a fourth frame needs no logic change.
   var DEATH_FRAMES = ['enemyDeath1', 'enemyDeath2', 'enemyDeath3'];
+
+  // Fire a sound EVENT (AUD-02, plan 06-03). Guarded at CALL time by typeof: this
+  // is script 13 and js/sound.js is script 15, so `Sound` does not exist while this
+  // module is being evaluated — it always does by the time anything calls hurt() or
+  // spawnProjectile(). The event NAMES come from CONFIG.SFX_EVENTS (script 1) for
+  // the same reason, so no call site here re-types a string literal.
+  //
+  // Sound.play never throws, and nothing here reads its return: an enemy must die
+  // identically whether or not the browser gave us audio.
+  function playSound(event) {
+    if (typeof Sound === 'undefined' || !Sound || typeof Sound.play !== 'function') {
+      return false;
+    }
+    return Sound.play(event);
+  }
   Enemies.DEATH_FRAMES = DEATH_FRAMES;
   Enemies.CORPSE_FRAME = 'enemyCorpse';
   Enemies.PAIN_FRAME = 'enemyPain';
@@ -515,6 +530,12 @@ var Enemies = {
       p.scale = CONFIG.PROJ_SCALE;
       p.onFloor = false;
       p.active = true;
+      // THE ENEMY-ATTACK SOUND (AUD-02) — on the path that ACTUALLY ACTIVATED a
+      // pool entry, immediately before returning it. The sound follows the
+      // PROJECTILE, not the attempt: the `return null` below (a fully committed
+      // pool) stays silent, which is what assertion 2d's control measures. Putting
+      // it in the ATTACK release branch instead would fire on a lost shot too.
+      playSound(CONFIG.SFX_EVENTS.ENEMY_ATTACK);
       return p;
     }
     return null;
@@ -597,6 +618,13 @@ var Enemies = {
       // cannot inflate it (threat T-05-16). The typeof guard keeps this module
       // loadable in isolation.
       if (typeof Game !== 'undefined' && Game) Game.kills += 1;
+      // THE DEATH SOUND (AUD-02) rides in the SAME branch as the kill tally, and
+      // inherits the same guarantee for the same structural reason (threat T-06-21):
+      // hurt() returns immediately above for an enemy whose alive flag is already
+      // false, so overkill, a second shotgun pellet from the same blast, or any
+      // number of repeat hits CANNOT double-trigger it. Playing it from the update
+      // loop's DEATH branch instead would fire once per animation frame.
+      playSound(CONFIG.SFX_EVENTS.ENEMY_DEATH);
       return before - enemy.health;
     }
 

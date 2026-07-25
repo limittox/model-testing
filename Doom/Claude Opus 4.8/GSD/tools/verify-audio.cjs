@@ -612,10 +612,18 @@ const gestureWindow = (function () {
 // advanced: it runs BEFORE the synthesis attempt, so a broken audio stack cannot
 // make a single Phase 5 assertion vacuous.
 // ===========================================================================
+//
+// THE COUNT IS TAKEN BEFORE THE FRAME RUN, DELIBERATELY. The five call sites plan
+// 06-03 wired mean 60 real frames of a live level fire genuine sounds of their own
+// (an enemy attack, a fireball landing), so an exact count taken afterwards would
+// be measuring the level rather than the recorder. The explicit plays are counted
+// first; the frame run afterwards is the "gameplay continues" half of the claim,
+// and it drives every one of those new call sites through the broken audio stack.
 function brokenAudioCase(label, stubCfg, expectCtors) {
   const B = freshWorld(stubCfg);
   const bs = B.s;
   let threw = null;
+  let counted = -1;
 
   try {
     B.click();                                   // may construct / resume
@@ -625,6 +633,7 @@ function brokenAudioCase(label, stubCfg, expectCtors) {
       const ev = names.find((n) => bs.Sound.RECIPE_FOR[n] === key);
       bs.Sound.play(ev);
     }
+    counted = bs.Sound.count;
     // And gameplay must keep running: real frames, in the playing state.
     B.frames(60);
   } catch (err) {
@@ -632,11 +641,11 @@ function brokenAudioCase(label, stubCfg, expectCtors) {
   }
 
   const played = Object.keys(bs.CONFIG.SFX).length;
-  const ok = threw === null && bs.Sound.count === played &&
+  const ok = threw === null && counted === played &&
     bs.Game.time > 0 && bs.Sound.isAvailable() === false;
   assert(ok,
     '1i-' + label + '. Sound.play did not throw, the recorder still counted every event (' +
-    bs.Sound.count + '/' + played + '), 60 further frames ran (Game.time ' +
+    counted + '/' + played + '), 60 further frames ran (Game.time ' +
     bs.Game.time.toFixed(3) + ') and audio reports itself unavailable' +
     (threw ? ' — THREW: ' + threw.message : ''));
 
@@ -652,16 +661,18 @@ function brokenAudioCase(label, stubCfg, expectCtors) {
 (function () {
   const B = freshWorld(null);
   let threw = null;
+  let counted = -1;
   try {
     B.click();
     B.s.Sound.reset();
     B.s.Sound.play(B.s.Sound.NAMES.SHOTGUN);
+    counted = B.s.Sound.count;      // counted BEFORE the frame run — see the note above
     B.frames(60);
   } catch (err) { threw = err; }
-  assert(threw === null && B.s.Sound.count === 1 && B.s.Sound.context() === null &&
+  assert(threw === null && counted === 1 && B.s.Sound.context() === null &&
     B.s.Sound.isAvailable() === false && B.s.Game.time > 0,
     '1i-i. NO AudioContext binding on the global at all: the gesture built nothing, ' +
-    'Sound.play still recorded (count ' + B.s.Sound.count + ') and returned, and 60 ' +
+    'Sound.play still recorded (count ' + counted + ') and returned, and 60 ' +
     'frames ran' + (threw ? ' — THREW: ' + threw.message : ''));
   assert(typeof B.s.Sound.lastError === 'string' &&
     B.s.Sound.lastError.indexOf('AudioContext') >= 0,
@@ -681,16 +692,18 @@ function brokenAudioCase(label, stubCfg, expectCtors) {
 (function () {
   const B = freshWorld({ rejectResume: true });
   let threw = null;
+  let counted = -1;
   try {
     B.click();
     B.s.Sound.reset();
     B.s.Sound.play(B.s.Sound.NAMES.ENEMY_DEATH);
+    counted = B.s.Sound.count;
     B.frames(60);
   } catch (err) { threw = err; }
-  assert(threw === null && B.rec.resumes === 1 && B.s.Sound.count === 1 &&
+  assert(threw === null && B.rec.resumes === 1 && counted === 1 &&
     B.s.Game.time > 0,
     '1i-iii. a REJECTING resume() does not throw and does not stop the game (resumes ' +
-    B.rec.resumes + ', recorded ' + B.s.Sound.count + ', Game.time ' +
+    B.rec.resumes + ', recorded ' + counted + ', Game.time ' +
     B.s.Game.time.toFixed(3) + ')' + (threw ? ' — THREW: ' + threw.message : ''));
   assert(B.s.Sound.isAvailable() === true && B.rec.nodes.length > 0,
     '1i-iii-c. CONTROL: a refused resume leaves the GRAPH usable (' + B.rec.nodes.length +
@@ -703,15 +716,17 @@ function brokenAudioCase(label, stubCfg, expectCtors) {
   const B = freshWorld({ throwOnFactory: 'createOscillator' });
   let threw = null;
   const evs = ['PISTOL', 'SHOTGUN', 'ENEMY_ATTACK', 'ENEMY_DEATH', 'PLAYER_HURT', 'HEALTH'];
+  let counted = -1;
   try {
     B.click();
     B.s.Sound.reset();
     for (const k of evs) B.s.Sound.play(B.s.Sound.NAMES[k]);
+    counted = B.s.Sound.count;
     B.frames(60);
   } catch (err) { threw = err; }
-  assert(threw === null && B.s.Sound.count === evs.length && B.s.Game.time > 0,
+  assert(threw === null && counted === evs.length && B.s.Game.time > 0,
     '1i-iv. a node factory throwing MID-RECIPE does not throw out of Sound.play — all ' +
-    evs.length + ' events still recorded (' + B.s.Sound.count + ') and 60 frames ran' +
+    evs.length + ' events still recorded (' + counted + ') and 60 frames ran' +
     (threw ? ' — THREW: ' + threw.message : ''));
   assert(B.s.Sound.lastError !== null && B.s.Sound.lastError.indexOf('play(') === 0,
     '1i-iv-c. CONTROL: the failure was recorded from inside play (' +
@@ -812,6 +827,425 @@ const FORBIDDEN = [
   assert(osc.indexOf('sound.js') >= 0,
     '1k-iii. CONTROL: and it finds the SYNTHESIS calls (createOscillator / ' +
     'createBufferSource) in [' + osc.join(', ') + '] — the effects are built, not loaded');
+})();
+
+// ===========================================================================
+// 2. THE SIX EFFECTS FIRE FROM THE REAL GAMEPLAY CODE PATHS (AUD-02).
+//
+// EVERY COUNT IS TAKEN WITH Sound.reset() IMMEDIATELY BEFORE THE MEASURED ACTION,
+// so no unrelated event can inflate it, and every measured action produces at most
+// RING_SIZE events so the per-NAME read out of the ring is complete rather than
+// clipped (assertCompleteRing enforces exactly that).
+//
+// The expected names are DERIVED — from Weapons.TABLE for the two weapons, from
+// CONFIG.SFX_EVENTS everywhere else — so a renamed event moves the expectation
+// with it instead of silently passing against a stale literal.
+// ===========================================================================
+
+const EV = CONFIG.SFX_EVENTS;
+
+function intent(fire, slot) {
+  return {
+    forward: 0, strafe: 0, turn: 0, mouseDX: 0, run: false,
+    fire: fire === true, weaponSlot: slot || 0
+  };
+}
+
+// A clean PLAYING world with the level's own enemies OUT of the AI update set —
+// this section counts sounds, and a fireball landing mid-proof would add a
+// player-damage event for a reason that has nothing to do with the proof. The
+// enemies stay in Entities.list as billboards, so nothing is orphaned. Each proof
+// composes exactly the actors it wants with Enemies.add.
+function scenario(px, py) {
+  Game.setState(S.PLAYING);
+  Level.build();
+  Combat.reset();
+  Enemies.reset();                 // Entities.build() + Pickups.build(), together
+  Enemies.list.length = 0;
+  for (const p of Enemies.projectiles) p.active = false;
+  Weapons.reset();
+  Game.resetStats();
+  placeAt(px === undefined ? Level.LANDMARKS.openCell.x : px,
+    py === undefined ? Level.LANDMARKS.openCell.y : py, 1, 0);
+  Sound.reset();
+}
+
+// The names recorded since the last reset, newest first. Only complete while at
+// most RING_SIZE events have happened, which every caller asserts.
+function playedNames() { return Sound.recent(Sound.RING_SIZE); }
+function countName(name) { return playedNames().filter((n) => n === name).length; }
+function ringComplete() { return Sound.count <= Sound.RING_SIZE; }
+function ammoField() { return Weapons.TABLE[Combat.weapon].ammo; }
+function activeProjectiles() {
+  return Enemies.projectiles.filter((p) => p.active === true).length;
+}
+function freshEnemy(x, y) {
+  const e = Enemies.add(x, y);
+  e.state = Enemies.CHASE;
+  e.cooldown = 1e9;               // park the attack gate unless a proof wants it
+  return e;
+}
+
+const PISTOL_EV = Weapons.TABLE.pistol.sound;
+const SHOTGUN_EV = Weapons.TABLE.shotgun.sound;
+
+// --- 2a PISTOL: one shot, one report ---------------------------------------
+(function () {
+  assert(PISTOL_EV === EV.PISTOL && SHOTGUN_EV === EV.SHOTGUN,
+    '2a-0. setup: each Weapons.TABLE entry NAMES its own sound event (' + PISTOL_EV +
+    ' / ' + SHOTGUN_EV + ') — the fire path routes through data, not a branch');
+
+  scenario();
+  const bullets0 = Combat.ammo[ammoField()];
+  Sound.reset();
+  const fired = Weapons.fire();
+  assert(fired === true && ringComplete() && Sound.count === 1 &&
+    countName(PISTOL_EV) === 1,
+    '2a-i. AUD-02: ONE successful pistol shot records EXACTLY one play of ' + PISTOL_EV +
+    ' (count ' + Sound.count + ', names [' + playedNames().join(',') + '])');
+  assert(Combat.ammo[ammoField()] === bullets0 - 1,
+    '2a-ii. and it still spent exactly one round (' + bullets0 + ' -> ' +
+    Combat.ammo[ammoField()] + ') — the sound is inert with respect to ammo');
+
+  // CONTROL: the same trigger with an EMPTY weapon records nothing at all.
+  Combat.ammo[ammoField()] = 0;
+  Weapons.cooldown = 0;
+  Sound.reset();
+  const refused = Weapons.fire();
+  assert(refused === false && Sound.count === 0,
+    '2a-iii. CONTROL: the same trigger press at ZERO ammo records ZERO plays (count ' +
+    Sound.count + ') — the sound is below the ammo gate, not above it');
+})();
+
+// --- 2b SHOTGUN: one blast, one report — NOT one per pellet -----------------
+(function () {
+  scenario();
+  Combat.grantShotgun();
+  Combat.selectWeapon(Combat.SHOTGUN);
+  const pellets = Weapons.TABLE.shotgun.pellets;
+  assert(Combat.weapon === Combat.SHOTGUN && pellets > 1 &&
+    Combat.ammo[ammoField()] > 0,
+    '2b-0. setup: the shotgun is granted, selected and loaded, and it fires ' + pellets +
+    ' pellets — so "one per shot" and "one per pellet" are distinguishable');
+
+  Weapons.cooldown = 0;
+  Sound.reset();
+  const fired = Weapons.fire();
+  assert(fired === true && ringComplete() && Sound.count === 1 &&
+    countName(SHOTGUN_EV) === 1 && countName(PISTOL_EV) === 0,
+    '2b-i. AUD-02: one shotgun blast records EXACTLY one play of ' + SHOTGUN_EV +
+    ' and zero of ' + PISTOL_EV + ' — ONE report, not ' + pellets + ' (count ' +
+    Sound.count + ')');
+  assert(Weapons.lastRayCount === pellets,
+    '2b-ii. CONTROL: that single report really did cast all ' + Weapons.lastRayCount +
+    ' pellet rays — the sound is outside the pellet loop, not instead of it');
+})();
+
+// --- 2c THE DRY CLICK IS EDGE-GATED, AND THE EDGE RE-ARMS -------------------
+(function () {
+  scenario();
+  Combat.ammo[ammoField()] = 0;
+  Weapons.cooldown = 0;
+  Sound.reset();
+
+  const dry0 = Weapons.dryFires;
+  for (let i = 0; i < 120; i++) Weapons.update(FRAME_DT, intent(true, 0));
+  assert(Weapons.dryFires - dry0 === 120,
+    '2c-0. setup: the held trigger really DID refuse on all 120 frames (' +
+    (Weapons.dryFires - dry0) + ' refusals) — a refused shot never charges the ' +
+    'cooldown, which is exactly why an unguarded click would fire 60 times a second');
+  assert(ringComplete() && Sound.count === 1 && countName(EV.DRY_FIRE) === 1,
+    '2c-i. AUD-02: 120 frames of a held trigger at zero ammo record EXACTLY ONE ' +
+    EV.DRY_FIRE + ' play (count ' + Sound.count + ') — the click hangs on the SAME ' +
+    'false-to-true edge of Weapons.lastDryFire that 06-02\'s message uses');
+
+  // THE EDGE RE-ARMS: one real shot clears the flag, so running dry again clicks
+  // again. Without this control "exactly one" could be satisfied by a latch that
+  // never fires a second time in a whole session.
+  Combat.ammo[ammoField()] = 1;
+  Weapons.cooldown = 0;
+  Weapons.update(FRAME_DT, intent(true, 0));
+  assert(Weapons.lastDryFire === false && Combat.ammo[ammoField()] === 0 &&
+    countName(PISTOL_EV) === 1,
+    '2c-1. setup: one real shot left the barrel (recording its own ' + PISTOL_EV +
+    '), clearing the dry-fire flag and emptying the weapon again');
+
+  Weapons.update(Weapons.cooldown + 0.01, intent(false, 0));   // wait out the cooldown
+  for (let i = 0; i < 120; i++) Weapons.update(FRAME_DT, intent(true, 0));
+  assert(ringComplete() && countName(EV.DRY_FIRE) === 2,
+    '2c-ii. CONTROL: after that successful shot, holding the trigger dry again takes the ' +
+    EV.DRY_FIRE + ' count to EXACTLY two (' + countName(EV.DRY_FIRE) + ') — the edge ' +
+    're-arms rather than latching forever');
+})();
+
+// --- 2d ENEMY ATTACK: one per SPAWNED projectile, not per attempt -----------
+(function () {
+  scenario(6.5, 2.5);
+  const e = freshEnemy(2.5, 2.5);
+  e.cooldown = 0;                              // let it attack as soon as it can
+  assert(Level.lineOfSight(Player.x, Player.y, e.x, e.y) &&
+    Math.hypot(e.x - Player.x, e.y - Player.y) <= CONFIG.ENEMY_ATTACK_RANGE,
+    '2d-0. setup: one enemy, in clear sight, inside ENEMY_ATTACK_RANGE, with a fully ' +
+    'elapsed cooldown');
+
+  Sound.reset();
+  let frames = 0;
+  while (activeProjectiles() === 0 && frames < 300) { Enemies.update(FRAME_DT); frames += 1; }
+  assert(activeProjectiles() === 1 && frames < 300,
+    '2d-1. setup: the AI released EXACTLY one projectile after ' + frames + ' frames ' +
+    '(the windup, driven through the real Enemies.update)');
+  assert(ringComplete() && countName(EV.ENEMY_ATTACK) === 1 && Sound.count === 1,
+    '2d-i. AUD-02: that one spawned projectile records EXACTLY one ' + EV.ENEMY_ATTACK +
+    ' play (count ' + Sound.count + ', names [' + playedNames().join(',') + '])');
+
+  // CONTROL: with EVERY pool entry in flight, spawnProjectile returns null and the
+  // sound must not fire — it follows the projectile, not the attempt.
+  for (const p of Enemies.projectiles) p.active = true;
+  Sound.reset();
+  const got = Enemies.spawnProjectile(e);
+  assert(got === null && Sound.count === 0,
+    '2d-ii. CONTROL: with the whole pool committed, spawnProjectile returns null and ' +
+    'records ZERO ' + EV.ENEMY_ATTACK + ' plays (count ' + Sound.count + ') — the sound ' +
+    'follows the PROJECTILE, not the attempt');
+})();
+
+// --- 2e ENEMY DEATH: one per death, never per overkill hit ------------------
+(function () {
+  scenario();
+  const e = freshEnemy(6.5, Player.y);
+  const nonLethal = CONFIG.PISTOL_DAMAGE;
+  assert(nonLethal < CONFIG.ENEMY_HEALTH,
+    '2e-0. setup: one PISTOL_DAMAGE hit (' + nonLethal + ') is NON-lethal against ' +
+    'ENEMY_HEALTH (' + CONFIG.ENEMY_HEALTH + ')');
+
+  // CONTROL FIRST: a survivable hit says nothing.
+  Sound.reset();
+  Enemies.hurt(e, nonLethal);
+  assert(e.alive === true && Sound.count === 0,
+    '2e-i. CONTROL: a NON-lethal hit records ZERO ' + EV.ENEMY_DEATH + ' plays (count ' +
+    Sound.count + ') — the sound is in the lethal branch, not in hurt()');
+
+  const kills0 = Game.kills;
+  Sound.reset();
+  Enemies.hurt(e, CONFIG.ENEMY_HEALTH * 10);
+  assert(e.alive === false && ringComplete() && Sound.count === 1 &&
+    countName(EV.ENEMY_DEATH) === 1,
+    '2e-ii. AUD-02: the lethal hit records EXACTLY one ' + EV.ENEMY_DEATH + ' play ' +
+    '(count ' + Sound.count + ')');
+  assert(Game.kills === kills0 + 1,
+    '2e-iii. and it still tallied EXACTLY one kill (' + kills0 + ' -> ' + Game.kills +
+    ') — the sound rides the same branch as the tally and changes nothing about it');
+
+  Sound.reset();
+  for (let i = 0; i < 5; i++) Enemies.hurt(e, CONFIG.ENEMY_HEALTH * 10);
+  assert(Sound.count === 0 && Game.kills === kills0 + 1,
+    '2e-iv. CONTROL: five further hits on the same corpse record ZERO further plays ' +
+    'and add ZERO kills — hurt() returns early for an enemy already not alive, so ' +
+    'overkill is STRUCTURALLY unable to double-trigger either (threat T-06-21)');
+})();
+
+// --- 2f PLAYER DAMAGE: one per LANDED hit, never per blocked one ------------
+(function () {
+  scenario();
+  const DMG = 11;
+  Sound.reset();
+  const lost = Combat.damagePlayer(DMG);
+  // The locked armor formula, recomputed here INDEPENDENTLY of combat.js.
+  const expected = DMG - Math.min(CONFIG.PLAYER_START_ARMOR,
+    Math.floor(DMG / CONFIG.ARMOR_ABSORB_DIVISOR));
+  assert(lost > 0 && ringComplete() && Sound.count === 1 &&
+    countName(EV.PLAYER_HURT) === 1,
+    '2f-i. AUD-02: a hit that removes health records EXACTLY one ' + EV.PLAYER_HURT +
+    ' play (' + lost + ' health lost, count ' + Sound.count + ')');
+  assert(lost === expected,
+    '2f-ii. and damagePlayer still returned the health the LOCKED formula says it ' +
+    'should (' + lost + ' === ' + expected + ') — the sound changed no arithmetic');
+
+  // CONTROLS: nothing that costs no health may make a sound.
+  Sound.reset();
+  const blocked = [Combat.damagePlayer(0), Combat.damagePlayer(-5),
+    Combat.damagePlayer(NaN), Combat.damagePlayer(Infinity), Combat.damagePlayer(0.4)];
+  assert(blocked.every((v) => v === 0) && Sound.count === 0,
+    '2f-iii. CONTROL: a zero, negative, non-finite or sub-one damage value returns 0 ' +
+    'and records ZERO plays (count ' + Sound.count + ')');
+
+  // An already-dead player takes no further damage and therefore says nothing.
+  Combat.damagePlayer(Combat.health + Combat.armor + 10);
+  assert(Combat.dead === true && Combat.health === 0,
+    '2f-1. setup: the player is dead with health floored at 0');
+  Sound.reset();
+  const post = Combat.damagePlayer(50);
+  assert(post === 0 && Sound.count === 0,
+    '2f-iv. CONTROL: a hit landing on an already-dead, zero-health player returns 0 ' +
+    'and records ZERO plays (count ' + Sound.count + ') — a stray fireball after death ' +
+    'is silent');
+})();
+
+// --- 2g PICKUP: the Phase 5 call site is UNTOUCHED --------------------------
+(function () {
+  const PICK_TYPES = ['health', 'armor', 'ammo', 'shotgun'];
+  const seen = [];
+  let allOk = true, offender = null;
+
+  for (const type of PICK_TYPES) {
+    scenario();
+    // Deactivate every pickup except the first of `type`, and put that one under
+    // the player, exactly as verify-pickups isolates an item.
+    let target = null;
+    for (const p of Pickups.list) {
+      if (target === null && p.itemType === type) {
+        target = p; p.active = true; p.x = Player.x; p.y = Player.y;
+      } else { p.active = false; }
+    }
+    Sound.reset();
+    Game.step(FRAME_DT);
+    const expected = Pickups.EFFECTS[type].sound;
+    const ok = target !== null && target.active === false && ringComplete() &&
+      Sound.count === 1 && countName(expected) === 1;
+    if (!ok) { allOk = false; offender = type + ' count=' + Sound.count + ' last=' + Sound.last; }
+    seen.push(Sound.last);
+  }
+
+  assert(allOk,
+    '2g-i. AUD-02 / PICK-05: collecting each of the four item types still records ' +
+    'EXACTLY one play with the ITEM\'S OWN name [' + seen.join(', ') + '] — the ' +
+    'existing call site is untouched' + (allOk ? '' : ' — offender ' + offender));
+  assert(new Set(seen).size === PICK_TYPES.length,
+    '2g-ii. and the four names are still PAIRWISE DISTINCT — four events sharing one ' +
+    'recipe, not one generic "pickup" event (Sound.RECIPE_FOR is what collapses them)');
+  const allToPickup = PICK_TYPES.every((t) =>
+    Sound.RECIPE_FOR[Pickups.EFFECTS[t].sound] === 'pickup');
+  assert(allToPickup,
+    '2g-iii. all four resolve through Sound.RECIPE_FOR to the SAME `pickup` recipe — ' +
+    'the event/recipe cardinalities differ on purpose');
+})();
+
+// --- 2h SIX DISTINCT RECIPES, compared FIELD BY FIELD ----------------------
+(function () {
+  const SIX_EVENTS = [EV.PISTOL, EV.SHOTGUN, EV.ENEMY_ATTACK, EV.ENEMY_DEATH,
+    EV.PICKUP_HEALTH, EV.PLAYER_HURT];
+  const keys = SIX_EVENTS.map((n) => Sound.RECIPE_FOR[n]);
+  assert(keys.every((k) => k !== undefined) && new Set(keys).size === SIX_EVENTS.length,
+    '2h-i. AUD-02: the six events resolve through Sound.RECIPE_FOR to SIX DIFFERENT ' +
+    'CONFIG.SFX entries [' + keys.join(', ') + ']');
+
+  // The defining parameters, compared pairwise. A copy-pasted recipe fails loudly.
+  const FIELDS = ['tone', 'wave', 'freqStart', 'freqEnd', 'noise', 'noiseLevel',
+    'filter', 'cutoffStart', 'cutoffEnd', 'q', 'gain', 'attack', 'decay', 'epsilon'];
+  let identical = null, differing = 0;
+  for (let i = 0; i < keys.length; i++) {
+    for (let j = i + 1; j < keys.length; j++) {
+      const a = CONFIG.SFX[keys[i]], b = CONFIG.SFX[keys[j]];
+      const diffs = FIELDS.filter((f) => a[f] !== b[f]);
+      if (diffs.length === 0) identical = keys[i] + ' === ' + keys[j];
+      else differing += 1;
+    }
+  }
+  const pairs = keys.length * (keys.length - 1) / 2;
+  assert(identical === null && differing === pairs,
+    '2h-ii. all ' + pairs + ' pairs of the six recipes differ across the ' + FIELDS.length +
+    ' defining parameters' + (identical ? ' — IDENTICAL PAIR: ' + identical : ''));
+
+  // And the differences are SUBSTANTIVE rather than a single decimal: every recipe
+  // has a distinct peak gain AND a distinct decay, and the layer combinations are
+  // not all the same shape.
+  const gains = new Set(keys.map((k) => CONFIG.SFX[k].gain));
+  const decays = new Set(keys.map((k) => CONFIG.SFX[k].decay));
+  const shapes = new Set(keys.map((k) =>
+    CONFIG.SFX[k].tone + '/' + CONFIG.SFX[k].noise + '/' + CONFIG.SFX[k].filter));
+  assert(gains.size === keys.length && decays.size === keys.length && shapes.size >= 4,
+    '2h-iii. the six have pairwise distinct peak gains (' + gains.size + ') and decays (' +
+    decays.size + '), across ' + shapes.size + ' different layer/filter shapes — they ' +
+    'read as different instruments, not as one sound retuned');
+
+  // The one ASCENDING sweep is the pickup, and the longest decay is the death.
+  const rising = keys.filter((k) => CONFIG.SFX[k].tone === true &&
+    CONFIG.SFX[k].freqEnd > CONFIG.SFX[k].freqStart);
+  assert(rising.length === 1 && rising[0] === 'pickup',
+    '2h-iv. exactly ONE of the six sweeps UPWARD and it is the pickup (' +
+    rising.join(',') + ') — the "you gained something" idiom is unmistakable ' +
+    'because nothing else rises');
+})();
+
+// --- 2i AUDIBLY different, not just named differently ----------------------
+(function () {
+  const SIX_EVENTS = [EV.PISTOL, EV.SHOTGUN, EV.ENEMY_ATTACK, EV.ENEMY_DEATH,
+    EV.PICKUP_HEALTH, EV.PLAYER_HURT];
+  assert(Sound.isAvailable() === true,
+    '2i-0. setup: the stub context is still live, so these are REAL recorded graphs');
+
+  const sigs = SIX_EVENTS.map((ev) => {
+    Sound.reset();
+    const win = recordPlay(ev);
+    return { ev, types: typeSig(win), freq: firstFreq(win), nodes: win.nodes.length };
+  });
+
+  assert(sigs.every((x) => x.nodes > 0 && x.freq !== null),
+    '2i-i. CONTROL: all six built a real node graph with a scheduled frequency [' +
+    sigs.map((x) => x.types + '@' + x.freq).join(' | ') + ']');
+
+  let same = null;
+  for (let i = 0; i < sigs.length; i++) {
+    for (let j = i + 1; j < sigs.length; j++) {
+      if (sigs[i].types === sigs[j].types && sigs[i].freq === sigs[j].freq) {
+        same = sigs[i].ev + ' === ' + sigs[j].ev;
+      }
+    }
+  }
+  assert(same === null,
+    '2i-ii. AUD-02: the six produce PAIRWISE DIFFERENT recorded graphs — the sequence of ' +
+    'created node types plus the first scheduled frequency differs for every pair' +
+    (same ? ' — IDENTICAL: ' + same : ''));
+
+  assert(new Set(sigs.map((x) => x.freq)).size === SIX_EVENTS.length,
+    '2i-iii. and the six first scheduled frequencies are all distinct (' +
+    sigs.map((x) => x.freq).join(', ') + ') — no two effects start in the same place');
+})();
+
+// --- 2j THE HOSTS ARE UNCHANGED — the additions are inert ------------------
+(function () {
+  scenario();
+  // Firing: exactly one round per shot, over many shots.
+  const field = ammoField();
+  const start = Combat.ammo[field];
+  const SHOTS = 12;
+  for (let i = 0; i < SHOTS; i++) { Weapons.cooldown = 0; Weapons.fire(); }
+  assert(Combat.ammo[field] === start - SHOTS && Weapons.shotsFired === SHOTS,
+    '2j-i. ' + SHOTS + ' shots spent EXACTLY ' + SHOTS + ' rounds (' + start + ' -> ' +
+    Combat.ammo[field] + ') and recorded ' + Weapons.shotsFired + ' shots — the fire ' +
+    'sound is inert with respect to ammo and the shot tally');
+
+  // Kills: exactly one per death, over many enemies.
+  scenario();
+  const N = 5;
+  const made = [];
+  for (let i = 0; i < N; i++) made.push(freshEnemy(6.5 + i, Player.y));
+  const kills0 = Game.kills;
+  for (const e of made) Enemies.hurt(e, CONFIG.ENEMY_HEALTH * 10);
+  assert(Game.kills === kills0 + N && made.every((e) => e.alive === false),
+    '2j-ii. ' + N + ' deaths tallied EXACTLY ' + N + ' kills (' + kills0 + ' -> ' +
+    Game.kills + ') — the death sound is inert with respect to the tally');
+
+  // Damage: the locked formula, recomputed independently, over a range of values.
+  scenario();
+  let allMatch = true, bad = null;
+  for (const dmg of [1, 2, 3, 7, 11, 30]) {
+    Combat.reset();
+    const absorbed = Math.min(CONFIG.PLAYER_START_ARMOR,
+      Math.floor(dmg / CONFIG.ARMOR_ABSORB_DIVISOR));
+    const want = dmg - absorbed;
+    const got = Combat.damagePlayer(dmg);
+    if (got !== want) { allMatch = false; bad = dmg + ': got ' + got + ' want ' + want; }
+  }
+  assert(allMatch,
+    '2j-iii. damagePlayer returns the health the LOCKED armor formula predicts for ' +
+    'every tested damage value — the player-damage sound is inert with respect to the ' +
+    'arithmetic' + (allMatch ? '' : ' — offender ' + bad));
+
+  assert(Sound.count > 0,
+    '2j-iv. CONTROL: all of 2j\'s inertness proofs were running with the sound call ' +
+    'sites LIVE (' + Sound.count + ' events recorded during them) — the additions are ' +
+    'proven inert, not proven absent');
 })();
 
 // ===========================================================================

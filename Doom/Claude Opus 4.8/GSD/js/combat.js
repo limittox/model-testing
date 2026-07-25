@@ -64,6 +64,21 @@ var Combat = {
   Combat.PISTOL = 'pistol';
   Combat.SHOTGUN = 'shotgun';
 
+  // Fire a sound EVENT (AUD-02, plan 06-03). Guarded at CALL time by typeof — the
+  // same idiom this file already uses for Game.time — because this is script 12 and
+  // js/sound.js is script 15: `Sound` does not exist while this module is being
+  // evaluated, and always does by the time a projectile lands. The event NAME comes
+  // from CONFIG.SFX_EVENTS (script 1) rather than Sound.NAMES for the same reason.
+  //
+  // Sound.play never throws, and damagePlayer's return value is untouched by it:
+  // audio is a consequence of the damage, never a condition of it.
+  function playSound(event) {
+    if (typeof Sound === 'undefined' || !Sound || typeof Sound.play !== 'function') {
+      return false;
+    }
+    return Sound.play(event);
+  }
+
   // ===========================================================================
   // RESET — seed every field from CONFIG. Called by main.js at boot and by any
   // future restart. Idempotent by construction: it assigns, never accumulates.
@@ -116,6 +131,13 @@ var Combat = {
     }
 
     var lost = before - Combat.health;
+    // THE PLAYER-DAMAGE SOUND (AUD-02) — hung on the HEALTH ACTUALLY LOST, not on
+    // the call and not on the raw damage (threat T-06-21). Everything that did not
+    // cost the player health is silent: the non-finite and non-positive guards above
+    // returned before reaching here, an already-dead player returned 0, and a hit
+    // that arrives with health already at the floor loses nothing and so says
+    // nothing. The player hears exactly the hits that hurt (assertion 2f).
+    if (lost > 0) playSound(CONFIG.SFX_EVENTS.PLAYER_HURT);
     Combat.totalDamageTaken += lost;
     // Simulation time, not wall-clock. Game.time advances inside Game.step, so
     // this is a real, monotonic stamp under both the rAF loop and a direct step.

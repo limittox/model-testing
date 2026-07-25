@@ -116,7 +116,14 @@ var Weapons = {
       spread: CONFIG.PISTOL_SPREAD,
       cooldown: CONFIG.PISTOL_COOLDOWN,
       ammo: CONFIG.PISTOL_AMMO,
-      sprite: 'weaponPistol'
+      sprite: 'weaponPistol',
+      // THE WEAPON NAMES ITS OWN SOUND (AUD-02, plan 06-03). The fire path routes
+      // to a synthesis recipe through DATA — Weapons.fire() plays w.sound and has
+      // no idea which weapon it is holding, so a third weapon is a table edit and
+      // not a new branch. The string comes from CONFIG.SFX_EVENTS because this file
+      // is script 14 and js/sound.js is script 15: Sound.NAMES does not exist yet
+      // at this line, and CONFIG (script 1) always does.
+      sound: CONFIG.SFX_EVENTS.PISTOL
     },
     shotgun: {
       name: 'shotgun',
@@ -125,7 +132,8 @@ var Weapons = {
       spread: CONFIG.SHOTGUN_SPREAD,
       cooldown: CONFIG.SHOTGUN_COOLDOWN,
       ammo: CONFIG.SHOTGUN_AMMO,
-      sprite: 'weaponShotgun'
+      sprite: 'weaponShotgun',
+      sound: CONFIG.SFX_EVENTS.SHOTGUN
     }
   };
 
@@ -159,6 +167,22 @@ var Weapons = {
       return false;
     }
     return Game.message(text);
+  }
+
+  // Fire a sound EVENT (AUD-02, plan 06-03). Guarded at CALL time by typeof for
+  // the same reason postEvent is, and for one further reason specific to this file:
+  // js/sound.js is script 15 and this is script 14, so `Sound` does not exist while
+  // this module is being evaluated. It always exists by the time anything calls
+  // fire() — the guard is what makes that safe to state rather than to assume.
+  //
+  // Sound.play never throws and returns whether it recorded the event; nothing in
+  // the fire path reads that return, because a weapon must behave identically
+  // whether or not the browser gave us audio.
+  function playSound(event) {
+    if (typeof Sound === 'undefined' || !Sound || typeof Sound.play !== 'function') {
+      return false;
+    }
+    return Sound.play(event);
   }
 
   // The angle scratch is sized to the LARGEST pellet count in the table, computed
@@ -367,6 +391,15 @@ var Weapons = {
     // updateViewmodel and read by renderViewmodel.
     Weapons.recoil = CONFIG.RECOIL_TIME;
     Weapons.flash = CONFIG.MUZZLE_FLASH_TIME;
+
+    // THE FIRE SOUND (AUD-02) — here, beside the recoil and the muzzle flash, and
+    // for the same reason they are here: this is the one point the shot has
+    // definitely LEFT THE BARREL. It is OUTSIDE the pellet loop above, so a
+    // seven-pellet shotgun blast is ONE report and not seven (assertion 2b), and it
+    // is below the ammo gate, so a refused trigger is silent (assertion 2a's
+    // control). The event name comes from the TABLE, so this line never mentions a
+    // weapon.
+    playSound(w.sound);
     return true;
   };
 
@@ -583,10 +616,17 @@ var Weapons = {
       // a second and leave the player unable to read any other message. The edge
       // re-arms the instant a shot actually succeeds (fire() clears the flag), so
       // picking ammo up and running dry again does notify a second time.
+      //
+      // PLAN 06-03 HANGS THE DRY-CLICK SOUND ON THE SAME SINGLE EDGE. There is
+      // exactly ONE edge test here, not two that could disagree: the message and
+      // the click are two effects of one transition. A held trigger at zero ammo
+      // therefore clicks ONCE, not sixty times a second (assertion 2c), and the
+      // click re-arms with the message when a real shot succeeds.
       var wasDry = Weapons.lastDryFire;
       Weapons.fire();
       if (wasDry !== true && Weapons.lastDryFire === true) {
         postEvent(Weapons.EVENT_TEXT.dryFire);
+        playSound(CONFIG.SFX_EVENTS.DRY_FIRE);
       }
     }
   };
