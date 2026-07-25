@@ -84,7 +84,13 @@ window.addEventListener('load', function () {
   // one Raycaster.render() call, still before Game.render's single present(). The
   // array is ordered; plan 05-04 appends the message line AFTER this so text lands
   // on top of the gun.
+  // ORDER IS LOAD-BEARING HERE. The array is iterated front to back, so the
+  // viewmodel goes down first and the message line lands ON TOP of the gun. Pushing
+  // them the other way round would bury the text behind the weapon at exactly the
+  // moment it matters — the message is centred in the lower third, which is where
+  // the viewmodel lives.
   Raycaster.overlayPasses.push(Weapons.renderViewmodel);
+  Raycaster.overlayPasses.push(Game.renderMessage);
 
   Game.attach();
 

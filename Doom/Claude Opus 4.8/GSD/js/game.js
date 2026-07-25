@@ -294,6 +294,151 @@ var Game = {
   };
 
   // ===========================================================================
+  // THE MESSAGE LINE (PICK-05) — the one piece of on-screen text Phase 5 draws.
+  //
+  // Pushed onto Raycaster.overlayPasses by main.js AFTER the weapon viewmodel, so
+  // it composites on top of the gun inside the SAME Raycaster.render() call — no
+  // second present, so the once-per-frame blit contract is untouched.
+  //
+  // IT IS NOT IN THE WORLD, exactly like the viewmodel:
+  //   . it NEVER writes Framebuffer.zBuffer (nothing in the world can be occluded
+  //     by a line of text, and the next frame's wall pass owns every column);
+  //   . every written pixel is forced OPAQUE by Raycaster.applyShade, and a texel
+  //     the alpha key rejects is skipped entirely — so there is no fringe and no
+  //     halo, structurally, by the same binary-alpha argument the sprite pass uses;
+  //   . the FADE is a colour scale through applyShade, never a partial alpha.
+  //
+  // INDEX SAFETY (threat T-05-25): the destination loop bounds are clamped into
+  // [0,W) x [0,H) per glyph, and a character with no glyph is SKIPPED rather than
+  // looked up out of range. The integer scale is additionally clamped DOWN so the
+  // whole line fits the frame width, so no message length can push the box off the
+  // right-hand edge in the first place.
+  //
+  // BOUNDARY: this is deliberately ONE LINE and nothing else. The HUD readouts, the
+  // crosshair, the minimap and the damage flash are Phase 6.
+  // ===========================================================================
+
+  // The last drawn text box, recorded (never allocated — one reused record) so a
+  // harness and Phase 6's HUD can ask where the line ended up without re-deriving
+  // the centring and scale arithmetic. Same discipline as Weapons.viewmodelBox.
+  Game.messageBox = { x: 0, y: 0, w: 0, h: 0, scale: 0, shade: 0, drawn: false };
+
+  // The fade shade for an age, as an INTEGER fixed-point value in [0,256] — the
+  // same representation Raycaster.shadeFactor returns, so applyShade consumes it
+  // directly. Full brightness for the first (1 - MESSAGE_FADE_FRAC) of the
+  // message's life, then a linear ramp down to MESSAGE_MIN_SHADE.
+  Game.messageShade = function (age) {
+    var life = CONFIG.MESSAGE_TIME;
+    if (!(life > 0)) return 256;
+    var fade = CONFIG.MESSAGE_FADE_FRAC * life;
+    var holdUntil = life - fade;
+    var s;
+    if (!(fade > 0) || age <= holdUntil) {
+      s = 1;
+    } else {
+      s = 1 - (age - holdUntil) / fade;               // 1 -> 0 across the fade
+      s = CONFIG.MESSAGE_MIN_SHADE + (1 - CONFIG.MESSAGE_MIN_SHADE) * s;
+      if (s < CONFIG.MESSAGE_MIN_SHADE) s = CONFIG.MESSAGE_MIN_SHADE;
+      if (s > 1) s = 1;
+    }
+    return (s * 256) | 0;
+  };
+
+  // Draw `text` with its top-left at (x0, y0) at an integer scale, every texel
+  // shaded by `shade`. Nearest-neighbour by construction (an integer scale means
+  // each source texel is a scale x scale block), so there is no sampling at all.
+  function drawText(text, x0, y0, scale, shade) {
+    var font = Sprites.font;
+    var glyphs = font.glyphs;
+    var gw = font.width, gh = font.height;
+    var advance = (gw + font.spacing) * scale;
+    var W = Framebuffer.width, H = Framebuffer.height;
+    var buf = Framebuffer.buf32;
+    var ALPHA_KEY = Sprites.ALPHA_KEY;
+    var applyShade = Raycaster.applyShade;
+
+    var penX = x0;
+    for (var i = 0; i < text.length; i++) {
+      var g = glyphs[text.charAt(i)];
+      // An unknown character draws NOTHING and still advances the pen — a blank,
+      // never an out-of-range lookup.
+      if (g !== undefined) {
+        var gbuf = g.buf32;
+        for (var sy = 0; sy < gh; sy++) {
+          var dy0 = y0 + sy * scale;
+          for (var sx = 0; sx < gw; sx++) {
+            var packed = gbuf[sy * gw + sx];
+            // The alpha key on the RAW texel, before anything touches it.
+            if (((packed >>> 24) & 0xff) < ALPHA_KEY) continue;
+            var shaded = applyShade(packed, shade);   // forces alpha OPAQUE
+            var dx0 = penX + sx * scale;
+            for (var py = 0; py < scale; py++) {
+              var dy = dy0 + py;
+              if (dy < 0 || dy >= H) continue;        // clamped into range
+              var rowBase = dy * W;
+              for (var px = 0; px < scale; px++) {
+                var dx = dx0 + px;
+                if (dx < 0 || dx >= W) continue;      // clamped into range
+                buf[rowBase + dx] = shaded;
+              }
+            }
+          }
+        }
+      }
+      penX += advance;
+    }
+  }
+
+  Game.renderMessage = function () {
+    var box = Game.messageBox;
+    box.drawn = false;
+
+    var slot = Game.activeMessage();
+    if (slot === null) return;
+    if (typeof Sprites === 'undefined' || !Sprites.font) return;
+    if (typeof Raycaster === 'undefined' || !Raycaster.applyShade) return;
+
+    var font = Sprites.font;
+    var gw = font.width, gh = font.height, gap = font.spacing;
+    var W = Framebuffer.width, H = Framebuffer.height;
+    var text = slot.text;
+    if (text.length === 0) return;
+
+    // The line's width in GLYPH units: one advance per character, minus the
+    // trailing inter-glyph gap the last character does not need.
+    var unitsW = text.length * (gw + gap) - gap;
+
+    // Integer scale DERIVED from the frame height (legible at any internal
+    // resolution), then CLAMPED DOWN so the line fits the width. The clamp is
+    // structural: no text length can overflow the right-hand edge.
+    var scale = Math.floor(H / CONFIG.MESSAGE_SCALE_DIV);
+    if (scale < 1) scale = 1;
+    var maxScale = Math.floor(W / unitsW);
+    if (maxScale < 1) maxScale = 1;
+    if (scale > maxScale) scale = maxScale;
+
+    var textW = unitsW * scale;
+    var textH = gh * scale;
+    var x0 = Math.floor((W - textW) / 2);              // horizontally CENTRED
+    var y0 = Math.floor(H * CONFIG.MESSAGE_Y_FRAC);    // in the LOWER THIRD
+
+    var shade = Game.messageShade(Game.time - slot.at);
+    var shadowShade = (shade * CONFIG.MESSAGE_SHADOW_SHADE) | 0;
+    if (shadowShade < 0) shadowShade = 0;
+
+    // THE DROP SHADOW FIRST, offset by one pixel down-right, so the text overwrites
+    // its own shadow where they overlap and the line reads over any background.
+    drawText(text, x0 + 1, y0 + 1, scale, shadowShade);
+    drawText(text, x0, y0, scale, shade);
+
+    // The box covers BOTH copies, which is what makes it the true written extent.
+    box.x = x0; box.y = y0;
+    box.w = textW + 1; box.h = textH + 1;
+    box.scale = scale; box.shade = shade;
+    box.drawn = true;
+  };
+
+  // ===========================================================================
   // CONTROL.
   // ===========================================================================
 

@@ -278,5 +278,34 @@ var CONFIG = {
   // MESSAGE_MAX: the size of the PREALLOCATED message ring. The ring cannot grow
   // and nothing is allocated per message, so a player standing on a pile of
   // pickups cannot make the queue unbounded (threat T-05-26).
-  MESSAGE_MAX: 4
+  MESSAGE_MAX: 4,
+
+  // --- The minimal in-framebuffer message LINE ------------------------------
+  // The 05-CONTEXT domain block defers the HUD to Phase 6 and allows exactly one
+  // exception: a minimal message line, so PICK-05 is observable now. These are its
+  // only tunables.
+  //
+  // MESSAGE_SCALE_DIV: the integer glyph scale is floor(Framebuffer.height /
+  // this), so the line stays legible at every internal resolution instead of
+  // shrinking to one pixel per glyph row on a tall viewport. It is then CLAMPED
+  // DOWN so the whole line fits the frame width — the clamp is structural, not a
+  // consequence of the tuning, so no message length can overflow horizontally.
+  MESSAGE_SCALE_DIV: 90,
+  // MESSAGE_Y_FRAC: the top of the line, as a fraction of Framebuffer.height.
+  // Inside the LOWER THIRD (> 2/3) at every height in the [MIN_H, MAX_H] band, and
+  // deliberately over the weapon viewmodel — the message pass runs AFTER the
+  // viewmodel in Raycaster.overlayPasses precisely so text lands on top of the gun.
+  MESSAGE_Y_FRAC: 0.72,
+  // MESSAGE_FADE_FRAC: the fraction of MESSAGE_TIME spent fading. The line holds
+  // full brightness for the first (1 - this) of its life, then ramps down.
+  MESSAGE_FADE_FRAC: 0.4,
+  // MESSAGE_MIN_SHADE: the brightness the fade ramps DOWN TO (never 0). Same
+  // readability-floor reasoning as CONFIG.MIN_SHADE: the line should dim out and
+  // then vanish at MESSAGE_TIME, not become an unreadable smear first.
+  MESSAGE_MIN_SHADE: 0.25,
+  // MESSAGE_SHADOW_SHADE: the one-pixel offset copy drawn BEHIND the text is the
+  // same glyph at this fraction of the text's shade — a near-black drop shadow, so
+  // the line reads over a lit wall, a dark corridor and a sprite alike without
+  // needing a second asset or any partial alpha.
+  MESSAGE_SHADOW_SHADE: 0.12
 };

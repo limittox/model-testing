@@ -56,7 +56,19 @@ h.sandbox.Raycaster.spritePass = null;
 // proofs — including its no-halo, unfogged and zero-z-buffer contracts — live in
 // tools/verify-weapons.cjs section 3. This is ISOLATION, not weakening: no
 // assertion here changed, the overlay simply does not run in the wall/floor harness.
+//
+// 05-04 added a SECOND overlay pass (the message line, pushed after the viewmodel),
+// so the isolation is now ASSERTED rather than left as an unchecked side effect: it
+// records how many passes boot actually installed, proves that number is non-zero
+// (so the truncation is doing real work and cannot pass vacuously), and proves the
+// array is empty afterwards. A future third overlay pass therefore cannot silently
+// leak into this harness's exact-pixel contracts.
+const overlaysAtBoot = h.sandbox.Raycaster.overlayPasses.length;
 h.sandbox.Raycaster.overlayPasses.length = 0;
+assert(overlaysAtBoot >= 2 && h.sandbox.Raycaster.overlayPasses.length === 0,
+  '0-iso. ISOLATION: boot installed ' + overlaysAtBoot + ' overlay passes (viewmodel + ' +
+  'message line) and this harness truncated them all — the wall/floor pixel ' +
+  'contracts below are measured with no overlay running');
 
 const s = h.sandbox;
 const CONFIG = s.CONFIG;

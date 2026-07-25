@@ -51,7 +51,17 @@ h.fireLoad();
 // array IN PLACE (never reassigning it) removes the overlay from this harness only.
 // The viewmodel's own pixel proofs live in tools/verify-weapons.cjs section 3. No
 // assertion below is weakened — the overlay simply does not run here.
+//
+// 05-04 added a SECOND overlay pass (the message line, pushed after the viewmodel),
+// so the isolation is now ASSERTED rather than left as an unchecked side effect —
+// non-vacuously, by first proving boot really installed some. A future third
+// overlay pass cannot silently leak into the billboard pixel proofs below.
+const overlaysAtBoot = h.sandbox.Raycaster.overlayPasses.length;
 h.sandbox.Raycaster.overlayPasses.length = 0;
+assert(overlaysAtBoot >= 2 && h.sandbox.Raycaster.overlayPasses.length === 0,
+  '0-iso. ISOLATION: boot installed ' + overlaysAtBoot + ' overlay passes (viewmodel ' +
+  '+ message line) and this harness truncated them all — the billboard pixel ' +
+  'contracts below are measured with no overlay running');
 
 const s = h.sandbox;
 const CONFIG = s.CONFIG;

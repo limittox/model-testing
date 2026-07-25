@@ -728,4 +728,390 @@ console.log('    openCell ' + JSON.stringify(OC));
   scenario(Level.playerStart.x, Level.playerStart.y);
 })();
 
+// ===========================================================================
+// 3. THE FRAMEBUFFER MESSAGE LINE (PICK-05 — the sanctioned Phase-6 exception).
+//
+//    EVERY PROOF IN THIS SECTION IS AGE-BASED, so 3-0 asserts UP FRONT that the
+//    clock those ages are measured against actually moves in whichever driver the
+//    scenario uses. Game.time is SIMULATION time accumulated inside Game.step
+//    (05-01 moved it there out of Game.frame), so it advances under BOTH h.raf.step
+//    and a direct Game.step(dt). A scenario in which Game.time did not move would
+//    let the expiry proof pass VACUOUSLY — "the message is gone after
+//    MESSAGE_TIME" is trivially true if the clock never reaches MESSAGE_TIME, and
+//    equally trivially true if it never reaches anything at all.
+// ===========================================================================
+
+// Render ONE frame with ONLY the message overlay running (the world passes still
+// run; the viewmodel does not), and return a copy. Isolating it from the viewmodel
+// is what lets the no-halo and box proofs attribute every changed pixel to the text.
+function renderWithMessageOnly() {
+  const saved = Raycaster.overlayPasses.slice();
+  Raycaster.overlayPasses.length = 0;
+  Raycaster.overlayPasses.push(Game.renderMessage);
+  Game.view.render();
+  const out = Framebuffer.buf32.slice();
+  Raycaster.overlayPasses.length = 0;
+  for (let i = 0; i < saved.length; i++) Raycaster.overlayPasses.push(saved[i]);
+  return out;
+}
+
+// --- 3-0: the clock moves, in BOTH drivers (the anti-vacuity gate) ----------
+(function () {
+  scenario(OC.x, OC.y);
+
+  // Driver A — a DIRECT Game.step(dt).
+  const t0 = Game.time;
+  simFrames(30);
+  const elapsedStep = Game.time - t0;
+  const expectStep = 30 * FRAME_DT;
+  assert(Math.abs(elapsedStep - expectStep) < 1e-9 && elapsedStep > 0,
+    '3-0. Game.time ADVANCES under a direct Game.step(dt): 30 frames at ' +
+    FRAME_DT.toFixed(6) + ' s elapsed ' + elapsedStep.toFixed(6) + ' s (expected ' +
+    expectStep.toFixed(6) + ') — no age-based proof below is vacuous');
+
+  // Driver B — the REAL rAF loop.
+  const t1 = Game.time;
+  const f1 = Game.frames;
+  raf.run(30, FRAME_MS);
+  const elapsedRaf = Game.time - t1;
+  assert(elapsedRaf > 0 && Game.frames - f1 === 30,
+    '3-0-ii. Game.time ALSO advances under the real loop (h.raf.step): 30 frames ran ' +
+    'and ' + elapsedRaf.toFixed(6) + ' simulated seconds elapsed');
+
+  // And MESSAGE_TIME is genuinely reachable inside a plausible frame budget, so
+  // the expiry proofs measure a real transition rather than an unreachable one.
+  const framesToExpire = Math.ceil(CONFIG.MESSAGE_TIME / FRAME_DT);
+  assert(framesToExpire > 1 && framesToExpire < 1000,
+    '3-0-iii. CONFIG.MESSAGE_TIME (' + CONFIG.MESSAGE_TIME + ' s) is ' + framesToExpire +
+    ' frames at ' + FRAME_DT.toFixed(4) + ' s — reachable, and more than one frame, ' +
+    'so "drawn then absent" is a real transition');
+
+  assert(!!Sprites.font && Sprites.font.width === 5 && Sprites.font.height === 7 &&
+    !!Sprites.font.glyphs.A && !!Sprites.font.glyphs['0'] && !!Sprites.font.glyphs['!'],
+    '3-0-iv. the 5x7 bitmap font is built (Sprites.font) with A-Z, 0-9 and punctuation');
+
+  // The font's alpha is BINARY, which is the structural reason the line has no
+  // halo: a texel is either exactly 0 or fully opaque, never in between.
+  let binary = true, texels = 0, ink = 0;
+  for (const key of Object.keys(Sprites.font.glyphs)) {
+    const g = Sprites.font.glyphs[key];
+    for (let i = 0; i < g.buf32.length; i++) {
+      const a = (g.buf32[i] >>> 24) & 0xff;
+      texels += 1;
+      if (a === 0xff) ink += 1;
+      else if (g.buf32[i] !== 0) binary = false;
+    }
+  }
+  assert(binary && ink > 0,
+    '3-0-v. every glyph texel is EITHER packed 0 OR fully opaque (' + ink + ' ink of ' +
+    texels + ' texels, no in-between value) — binary alpha, so no fringe is possible');
+
+  assert(Raycaster.overlayPasses.length === 2 &&
+    Raycaster.overlayPasses.indexOf(Weapons.renderViewmodel) === 0 &&
+    Raycaster.overlayPasses.indexOf(Game.renderMessage) === 1,
+    '3-0-vi. main.js pushed the message line onto Raycaster.overlayPasses AFTER the ' +
+    'viewmodel (index 1 of 2) — the array is ORDERED, so text lands ON TOP of the gun');
+})();
+
+// --- 3a: a pickup makes the frame differ, in the lower third, centred -------
+(function () {
+  scenario(OC.x, OC.y, 1, 0);
+  isolate('health', OC.x, OC.y);
+  Game.step(FRAME_DT);
+  assert(Game.activeMessage() !== null,
+    '3a. setup: the collection left an active message ("' + Game.activeMessage().text + '")');
+
+  const withMsg = renderWithMessageOnly();
+
+  // The CONTROL is the SAME frame with the message ring cleared — identical pose,
+  // identical world, the only difference being that there is nothing to say.
+  Game.clearMessages();
+  const withoutMsg = renderWithMessageOnly();
+
+  const W = Framebuffer.width, H = Framebuffer.height;
+  const changed = [];
+  for (let i = 0; i < withMsg.length; i++) {
+    if (withMsg[i] !== withoutMsg[i]) changed.push(i);
+  }
+  assert(changed.length > 0,
+    '3a-ii. the frame drawn with a message differs from the same frame with the ring ' +
+    'CLEARED in ' + changed.length + ' pixels');
+
+  let minX = W, maxX = -1, minY = H, maxY = -1;
+  for (const i of changed) {
+    const x = i % W, y = (i - x) / W;
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  assert(minY >= Math.floor(2 * H / 3),
+    '3a-iii. every changed pixel lies in the LOWER THIRD: rows ' + minY + '..' + maxY +
+    ', all at or below row ' + Math.floor(2 * H / 3) + ' of ' + H);
+
+  // HORIZONTAL CENTRING is a property of the GLYPH ADVANCE BOX, not of the ink:
+  // the ink inside an edge glyph's cell need not reach that cell's border (this very
+  // message ends in a period, whose ink sits in columns 1-2 of its 5-wide cell), so
+  // measuring the ink span alone would report an asymmetry the layout does not have.
+  // So the claim is made in two parts — the exact one about the box, and a
+  // structurally-bounded one about the ink.
+  const font = Sprites.font;
+  const text = 'PICKED UP A MEDIKIT.';
+  const unitsW = text.length * (font.width + font.spacing) - font.spacing;
+  let scale = Math.floor(H / CONFIG.MESSAGE_SCALE_DIV);
+  if (scale < 1) scale = 1;
+  const maxScale = Math.max(1, Math.floor(W / unitsW));
+  if (scale > maxScale) scale = maxScale;
+  const textW = unitsW * scale;
+  const boxX = Math.floor((W - textW) / 2);
+  const boxLeft = boxX;
+  const boxRight = W - (boxX + textW);
+  assert(Math.abs(boxLeft - boxRight) <= 1,
+    '3a-iv. the drawn LINE BOX is horizontally CENTRED: left margin ' + boxLeft +
+    ', right margin ' + boxRight + ' (within 1 px — integer division of the ' +
+    (W - textW) + ' px of slack)');
+
+  // And the ink lies inside that box, off-centre by at most ONE GLYPH CELL — the
+  // structural bound on how far a narrow edge glyph (a period, a full stop, a "1")
+  // can pull the ink in from its cell border.
+  const cell = font.width * scale;
+  const inkLeft = minX, inkRight = W - 1 - maxX;
+  assert(minX >= boxX && maxX <= boxX + textW &&
+    Math.abs(inkLeft - inkRight) <= cell,
+    '3a-v. the ink sits INSIDE that box (cols ' + minX + '..' + maxX + ' within ' +
+    boxX + '..' + (boxX + textW) + ') and is off-centre by ' +
+    Math.abs(inkLeft - inkRight) + ' px, at most one ' + cell + ' px glyph cell');
+})();
+
+// --- 3b: no halo — written pixels opaque, skipped pixels untouched ----------
+(function () {
+  scenario(OC.x, OC.y, 1, 0);
+  isolate('health', OC.x, OC.y);
+  Game.step(FRAME_DT);
+  const slot = Game.activeMessage();
+
+  // The pre-overlay frame: the world passes only.
+  const saved = Raycaster.overlayPasses.slice();
+  Raycaster.overlayPasses.length = 0;
+  Game.view.render();
+  const pre = Framebuffer.buf32.slice();
+  // Now run ONLY the message pass over that exact frame.
+  Game.renderMessage();
+  const post = Framebuffer.buf32.slice();
+  Raycaster.overlayPasses.length = 0;
+  for (let i = 0; i < saved.length; i++) Raycaster.overlayPasses.push(saved[i]);
+
+  // RECOMPUTE the expected box INDEPENDENTLY from the documented formula, rather
+  // than reading Game.messageBox — reading the record under test would make the
+  // containment claim tautological.
+  const W = Framebuffer.width, H = Framebuffer.height;
+  const font = Sprites.font;
+  const unitsW = slot.text.length * (font.width + font.spacing) - font.spacing;
+  let scale = Math.floor(H / CONFIG.MESSAGE_SCALE_DIV);
+  if (scale < 1) scale = 1;
+  let maxScale = Math.floor(W / unitsW);
+  if (maxScale < 1) maxScale = 1;
+  if (scale > maxScale) scale = maxScale;
+  const boxX = Math.floor((W - unitsW * scale) / 2);
+  const boxY = Math.floor(H * CONFIG.MESSAGE_Y_FRAC);
+  const boxW = unitsW * scale + 1;           // +1 for the shadow offset
+  const boxH = font.height * scale + 1;
+
+  const rec = Game.messageBox;
+  assert(rec.drawn === true && rec.x === boxX && rec.y === boxY &&
+    rec.w === boxW && rec.h === boxH && rec.scale === scale,
+    '3b. the recorded messageBox matches the INDEPENDENTLY recomputed box exactly: ' +
+    '(' + rec.x + ',' + rec.y + ') ' + rec.w + 'x' + rec.h + ' at scale ' + rec.scale);
+
+  let written = 0, opaque = 0, strayOutside = 0, skippedIdentical = 0, skippedDiff = 0;
+  for (let i = 0; i < pre.length; i++) {
+    const x = i % W, y = (i - x) / W;
+    const inBox = x >= boxX && x < boxX + boxW && y >= boxY && y < boxY + boxH;
+    if (post[i] !== pre[i]) {
+      written += 1;
+      if (((post[i] >>> 24) & 0xff) === 0xff) opaque += 1;
+      if (!inBox) strayOutside += 1;
+    } else if (inBox) {
+      // A pixel inside the box the alpha key SKIPPED (a blank glyph column, or the
+      // gap between letters). It must be byte-for-byte the pre-overlay frame.
+      skippedIdentical += 1;
+    }
+  }
+  for (let i = 0; i < pre.length; i++) {
+    const x = i % W, y = (i - x) / W;
+    const inBox = x >= boxX && x < boxX + boxW && y >= boxY && y < boxY + boxH;
+    if (!inBox && post[i] !== pre[i]) skippedDiff += 1;
+  }
+
+  assert(written > 0 && opaque === written,
+    '3b-ii. NO HALO: all ' + written + ' pixels the message wrote are FULLY OPAQUE ' +
+    '(' + opaque + '/' + written + ') — the fade is a colour scale through ' +
+    'applyShade, never a partial alpha');
+  assert(strayOutside === 0 && skippedDiff === 0,
+    '3b-iii. ZERO writes outside the recomputed box (' + strayOutside +
+    ') — every destination index is clamped into range');
+  assert(skippedIdentical > 0,
+    '3b-iv. NO HALO: the ' + skippedIdentical + ' alpha-key-SKIPPED pixels inside the ' +
+    'box are byte-for-byte the pre-overlay frame (the gaps between glyphs show the ' +
+    'world through, not a dark rim)');
+})();
+
+// --- 3c: the message pass NEVER writes the z-buffer -------------------------
+(function () {
+  scenario(OC.x, OC.y, 1, 0);
+  isolate('health', OC.x, OC.y);
+  Game.step(FRAME_DT);
+
+  const saved = Raycaster.overlayPasses.slice();
+  Raycaster.overlayPasses.length = 0;
+  Game.view.render();                      // world passes fill zBuffer
+  const zBefore = Framebuffer.zBuffer.slice();
+  const bufBefore = Framebuffer.buf32.slice();
+  Game.renderMessage();                    // the pass under test, in ISOLATION
+  const zAfter = Framebuffer.zBuffer.slice();
+  const wrote = diffCount(bufBefore, Framebuffer.buf32);
+  Raycaster.overlayPasses.length = 0;
+  for (let i = 0; i < saved.length; i++) Raycaster.overlayPasses.push(saved[i]);
+
+  assert(diffCount(zBefore, zAfter) === 0,
+    '3c. Framebuffer.zBuffer is byte-for-byte IDENTICAL across the message pass — ' +
+    'screen-space overlays never write depth');
+  assert(wrote > 0,
+    '3c-ii. NON-VACUITY CONTROL: that same isolated pass wrote ' + wrote +
+    ' framebuffer pixels — the z-buffer was untouched because the pass does not ' +
+    'write it, not because the pass did nothing');
+})();
+
+// --- 3d: drawn while age < MESSAGE_TIME, absent after (the paired control) ---
+(function () {
+  scenario(OC.x, OC.y, 1, 0);
+  isolate('health', OC.x, OC.y);
+  Game.step(FRAME_DT);
+  const slot = Game.activeMessage();
+  const postedAt = slot.at;
+
+  // The frame with NOTHING to say — the reference every comparison below uses.
+  const savedRing = { text: slot.text, at: slot.at };
+  Game.clearMessages();
+  const blank = renderWithMessageOnly();
+  slot.text = savedRing.text;
+  slot.at = savedRing.at;
+  Game.messageHead = 1;                    // this slot is the newest again
+
+  // Advance the SIMULATED clock to JUST BEFORE expiry, driving real frames.
+  const target = postedAt + CONFIG.MESSAGE_TIME - 2 * FRAME_DT;
+  let guard = 0;
+  while (Game.time < target && guard < 5000) { Game.step(FRAME_DT); guard += 1; }
+  const ageBefore = Game.time - postedAt;
+  assert(ageBefore > 0 && ageBefore < CONFIG.MESSAGE_TIME,
+    '3d. the clock really moved: the message is ' + ageBefore.toFixed(4) + ' s old, ' +
+    'still inside CONFIG.MESSAGE_TIME (' + CONFIG.MESSAGE_TIME + ') after ' + guard +
+    ' driven frames');
+  const justBefore = renderWithMessageOnly();
+  const drawnBefore = diffCount(justBefore, blank);
+  assert(Game.activeMessage() !== null && drawnBefore > 0,
+    '3d-ii. JUST BEFORE expiry the line is still DRAWN (' + drawnBefore +
+    ' pixels differ from the blank frame) — the fade dims it, it does not remove it');
+
+  // Cross the boundary.
+  guard = 0;
+  while (Game.time - postedAt < CONFIG.MESSAGE_TIME && guard < 5000) {
+    Game.step(FRAME_DT); guard += 1;
+  }
+  const ageAfter = Game.time - postedAt;
+  assert(ageAfter >= CONFIG.MESSAGE_TIME,
+    '3d-iii. the clock crossed the boundary: the message is now ' + ageAfter.toFixed(4) +
+    ' s old, at or past CONFIG.MESSAGE_TIME');
+  const justAfter = renderWithMessageOnly();
+  assert(Game.activeMessage() === null && diffCount(justAfter, blank) === 0 &&
+    Game.messageBox.drawn === false,
+    '3d-iv. PAIRED CONTROL: one boundary crossing later the line is GONE — the frame ' +
+    'is byte-identical to the blank one (0 pixels) against ' + drawnBefore +
+    ' just before, with the pose and the world unchanged throughout');
+
+  // The fade itself is monotonic and floored, which is what makes 3d-ii's "still
+  // drawn" claim compatible with "visibly fading".
+  const full = Game.messageShade(0);
+  const mid = Game.messageShade(CONFIG.MESSAGE_TIME * (1 - CONFIG.MESSAGE_FADE_FRAC / 2));
+  const end = Game.messageShade(CONFIG.MESSAGE_TIME);
+  assert(full === 256 && mid < full && end < mid &&
+    end >= (CONFIG.MESSAGE_MIN_SHADE * 256 | 0),
+    '3d-v. the fade is MONOTONIC and floored: shade ' + full + ' -> ' + mid + ' -> ' +
+    end + ' (floor ' + (CONFIG.MESSAGE_MIN_SHADE * 256 | 0) + ') — a colour ramp, ' +
+    'never partial alpha');
+})();
+
+// --- 3e: two pickups in quick succession leave the NEWEST message -----------
+(function () {
+  scenario(OC.x, OC.y, 1, 0);
+  // Two DIFFERENT items, both under the player, collected one frame apart.
+  const first = isolate('health', OC.x, OC.y);
+  let second = null;
+  for (const e of Pickups.list) {
+    if (e !== first && e.itemType === 'ammo') { second = e; break; }
+  }
+  second.active = true;
+  second.x = OC.x + 0.9;                   // outside the radius for now
+  second.y = OC.y;
+
+  Game.step(FRAME_DT);
+  const firstText = Game.activeMessage().text;
+  assert(first.active === false && firstText === Pickups.EFFECTS.health.text,
+    '3e. setup: the health pickup posted "' + firstText + '"');
+
+  // Now take the second one two frames later.
+  second.x = OC.x;
+  Game.step(FRAME_DT);
+  Game.step(FRAME_DT);
+  const newest = Game.activeMessage();
+  assert(second.active === false && newest !== null &&
+    newest.text === Pickups.EFFECTS.ammo.text && newest.text !== firstText,
+    '3e-ii. two pickups collected in quick succession leave the NEWEST message ' +
+    'active: "' + newest.text + '" (not the older "' + firstText + '")');
+  assert(Game.messagesPosted === 2,
+    '3e-iii. both messages were posted into the ring (' + Game.messagesPosted +
+    ') — the older one is retained, it is simply no longer the newest');
+
+  // And the NEWEST is what actually gets DRAWN, not merely what activeMessage()
+  // reports: the two texts differ in length, so the drawn box width differs.
+  renderWithMessageOnly();
+  const wNewest = Game.messageBox.w;
+  Game.messageHead = (Game.messageHead - 1 + Game.messages.length) % Game.messages.length;
+  renderWithMessageOnly();
+  const wOlder = Game.messageBox.w;
+  assert(wNewest !== wOlder,
+    '3e-iv. the DRAWN box tracks the newest message: width ' + wNewest +
+    ' for "' + newest.text + '" against ' + wOlder + ' for the older one');
+
+  // The ring cannot grow past CONFIG.MESSAGE_MAX however many are posted.
+  for (let i = 0; i < CONFIG.MESSAGE_MAX * 5; i++) Game.message('OVERFLOW ' + i);
+  assert(Game.messages.length === CONFIG.MESSAGE_MAX,
+    '3e-v. posting ' + (CONFIG.MESSAGE_MAX * 5) + ' more messages leaves the ring at ' +
+    'exactly CONFIG.MESSAGE_MAX (' + Game.messages.length + ') — preallocated, ' +
+    'never grown (threat T-05-26)');
+})();
+
+// --- 3f: one present per frame, still --------------------------------------
+(function () {
+  scenario(OC.x, OC.y, 1, 0);
+  isolate('health', OC.x, OC.y);
+  const framesBefore = Game.frames;
+  const putBefore = h.putCount();
+  raf.run(90, FRAME_MS);
+  const framesRun = Game.frames - framesBefore;
+  const presents = h.putCount() - putBefore;
+  assert(framesRun === 90 && presents === framesRun,
+    '3f. across 90 REAL loop frames (with a collection, its message and both overlay ' +
+    'passes running) the present count equals the frame count (' + presents + '/' +
+    framesRun + ') — the message line added no second putImageData');
+
+  // And a non-uniform framebuffer, so those presents pushed a real frame.
+  const buf = Framebuffer.buf32;
+  let distinct = new Set();
+  for (let i = 0; i < buf.length; i += 97) distinct.add(buf[i]);
+  assert(distinct.size > 1,
+    '3f-ii. the presented framebuffer is non-uniform (' + distinct.size +
+    ' distinct sampled colours) — a real rendered frame, not a cleared one');
+})();
+
 finish('ALL_PICKUP_CONTRACTS_PASS');
