@@ -35,7 +35,7 @@ All code lives under `Doom/Claude Opus 4.8/GSD/`.
 
 - [x] **ENT-01**: Enemies and pickups render as billboarded sprites that always face the camera
 - [x] **ENT-02**: Sprites are depth-sorted back-to-front and occluded correctly against walls via the z-buffer
-- [ ] **ENT-03**: Sprites use transparent pixels (alpha/color-key) with no halo artifacts
+- [x] **ENT-03**: Sprites use transparent pixels (alpha/color-key) with no halo artifacts
 
 ### Enemies
 
@@ -136,7 +136,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | REND-06 | Phase 3 | Complete |
 | ENT-01 | Phase 4 | Complete |
 | ENT-02 | Phase 4 | Complete |
-| ENT-03 | Phase 4 | Pending |
+| ENT-03 | Phase 4 | Complete |
 | ENEM-01 | Phase 5 | Pending |
 | ENEM-02 | Phase 5 | Pending |
 | ENEM-03 | Phase 5 | Pending |
