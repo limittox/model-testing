@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 05
 current_phase_name: enemy-ai-weapons-pickups
 status: executing
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-07-25T03:36:36.874Z"
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-07-25T04:11:53.667Z"
 last_activity: 2026-07-25
 last_activity_desc: Phase 05 execution started
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 14
-  completed_plans: 11
+  completed_plans: 12
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-07-23)
 ## Current Position
 
 Phase: 05 (enemy-ai-weapons-pickups) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-07-25 — Phase 05 execution started
 
-Progress: [████████░░] 79%
+Progress: [█████████░] 86%
 
 ## Performance Metrics
 
@@ -70,6 +70,7 @@ Progress: [████████░░] 79%
 | Phase 04 P02 | 14min | 2 tasks | 2 files |
 | Phase 04 P02 | 14min | 2 tasks | 2 files |
 | Phase 05 P01 | ~65 min | 4 tasks | 14 files |
+| Phase 05 P02 | ~55 min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -109,6 +110,10 @@ Recent decisions affecting current work:
 - [Phase ?]: Enemy corner recovery is two-tier: full-speed free-axis slide first, latched quarter-turn wall-follow only when both axes are walled (a quarter-turn-only recovery jams an off-centre enemy at a one-cell corridor mouth)
 - [Phase ?]: Attack cooldown is charged on entering the attack state, so the firing period is exactly ENEMY_ATTACK_COOLDOWN rather than COOLDOWN+WINDUP
 - [Phase ?]: Game.time is simulation time accumulated inside Game.step, so a direct Game.step(dt) advances the clock and age-based proofs are non-vacuous
+- [Phase ?]: Bob amplitude scales against MAX ground speed (WALK_SPEED*RUN_MULT), not WALK_SPEED — clamping at walk speed makes running look identical to walking
+- [Phase ?]: The ammo gate refuses BEFORE touching the cooldown, so a dry click never locks the player out
+- [Phase ?]: ONE shared weapon cooldown on Weapons, never per-weapon — a per-weapon timer lets 1-2-1-2 fire at the sum of both rates
+- [Phase ?]: Raycaster.overlayPasses is an ORDERED ARRAY, not a second nullable hook, because 05-04's message line must land on top of the viewmodel
 
 ### Pending Todos
 
@@ -133,6 +138,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-25T03:36:23.909Z
-Stopped at: Completed 05-01-PLAN.md
+Last session: 2026-07-25T04:11:53.648Z
+Stopped at: Completed 05-02-PLAN.md
 Resume file: None

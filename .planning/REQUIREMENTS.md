@@ -47,11 +47,11 @@ All code lives under `Doom/Claude Opus 4.8/GSD/`.
 
 ### Weapons
 
-- [ ] **WEAP-01**: Player has at least two weapons — a pistol and a shotgun — switchable by key
-- [ ] **WEAP-02**: Firing is hitscan: it damages the nearest enemy along the aim line if not blocked by a wall
-- [ ] **WEAP-03**: The shotgun fires a multi-pellet spread; the pistol fires a single accurate shot
-- [ ] **WEAP-04**: Weapons show a viewmodel with movement bob, a firing/recoil animation, and a muzzle flash
-- [ ] **WEAP-05**: Firing consumes ammo and is blocked when ammo is empty
+- [x] **WEAP-01**: Player has at least two weapons — a pistol and a shotgun — switchable by key
+- [x] **WEAP-02**: Firing is hitscan: it damages the nearest enemy along the aim line if not blocked by a wall
+- [x] **WEAP-03**: The shotgun fires a multi-pellet spread; the pistol fires a single accurate shot
+- [x] **WEAP-04**: Weapons show a viewmodel with movement bob, a firing/recoil animation, and a muzzle flash
+- [x] **WEAP-05**: Firing consumes ammo and is blocked when ammo is empty
 
 ### Pickups
 
@@ -142,11 +142,11 @@ Which phases cover which requirements. Populated during roadmap creation.
 | ENEM-03 | Phase 5 | Complete |
 | ENEM-04 | Phase 5 | Pending |
 | ENEM-05 | Phase 5 | Pending |
-| WEAP-01 | Phase 5 | Pending |
-| WEAP-02 | Phase 5 | Pending |
-| WEAP-03 | Phase 5 | Pending |
-| WEAP-04 | Phase 5 | Pending |
-| WEAP-05 | Phase 5 | Pending |
+| WEAP-01 | Phase 5 | Complete |
+| WEAP-02 | Phase 5 | Complete |
+| WEAP-03 | Phase 5 | Complete |
+| WEAP-04 | Phase 5 | Complete |
+| WEAP-05 | Phase 5 | Complete |
 | PICK-01 | Phase 5 | Pending |
 | PICK-02 | Phase 5 | Pending |
 | PICK-03 | Phase 5 | Pending |
