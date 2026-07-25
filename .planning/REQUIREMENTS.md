@@ -81,9 +81,9 @@ All code lives under `Doom/Claude Opus 4.8/GSD/`.
 
 ### Audio
 
-- [ ] **AUD-01**: All sound effects are synthesized at runtime with the Web Audio API (no audio files)
-- [ ] **AUD-02**: Distinct SFX play for pistol fire, shotgun fire, enemy attack, enemy death, pickup, and player damage
-- [ ] **AUD-03**: The AudioContext is created/resumed on the start-screen gesture so audio is not blocked by autoplay policy
+- [x] **AUD-01**: All sound effects are synthesized at runtime with the Web Audio API (no audio files)
+- [x] **AUD-02**: Distinct SFX play for pistol fire, shotgun fire, enemy attack, enemy death, pickup, and player damage
+- [x] **AUD-03**: The AudioContext is created/resumed on the start-screen gesture so audio is not blocked by autoplay policy
 
 ## v2 Requirements
 
@@ -159,9 +159,9 @@ Which phases cover which requirements. Populated during roadmap creation.
 | HUD-04 | Phase 6 | Complete |
 | HUD-05 | Phase 6 | Complete |
 | HUD-06 | Phase 6 | Complete |
-| AUD-01 | Phase 6 | Pending |
-| AUD-02 | Phase 6 | Pending |
-| AUD-03 | Phase 6 | Pending |
+| AUD-01 | Phase 6 | Complete |
+| AUD-02 | Phase 6 | Complete |
+| AUD-03 | Phase 6 | Complete |
 | LVL-03 | Phase 6 | Complete |
 | LVL-04 | Phase 6 | Complete |
 | LVL-05 | Phase 6 | Complete |

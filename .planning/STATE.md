@@ -4,16 +4,16 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 06
 current_phase_name: hud-audio-game-state-machine
-status: executing
-stopped_at: Completed 06-02-PLAN.md
-last_updated: "2026-07-25T07:15:03.797Z"
+status: verifying
+stopped_at: Completed 06-03-PLAN.md — phase 6 and the v1.0 milestone are code-complete
+last_updated: "2026-07-25T07:45:06.837Z"
 last_activity: 2026-07-25
 last_activity_desc: Phase 06 execution started
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 17
-  completed_plans: 16
+  completed_plans: 17
 ---
 
 # Project State
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-07-23)
 
 Phase: 06 (hud-audio-game-state-machine) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-25 — Phase 06 execution started
 
-Progress: [█████████░] 94%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -75,6 +75,7 @@ Progress: [█████████░] 94%
 | Phase 05 P04 | ~50 min | 3 tasks | 15 files |
 | Phase 06 P01 | 62 | 3 tasks | 18 files |
 | Phase 06 P02 | 48min | 3 tasks | 4 files |
+| Phase 06 P03 | 41min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -129,6 +130,10 @@ Recent decisions affecting current work:
 - [Phase ?]: 06-02: the minimap grid is prebuilt once into an offscreen canvas and composited with a single drawImage — 40 overlay calls per frame against 576 cells
 - [Phase ?]: 06-02: the ammo readout resolves its Combat.ammo field through Weapons.TABLE, so the bar and the trigger cannot disagree
 - [Phase ?]: 06-02: D-02 held — no message renderer in js/hud.js; the two new event messages ride Game.renderMessage and the 06-01 double-draw gate was extended, not replaced
+- [Phase ?]: AudioContext held in a module-scope variable behind Sound.context(), never a Sound.ctx field, so verify-pickups 0d and verify-state 1g stay green while the engine genuinely builds a context
+- [Phase ?]: The AudioContext constructor is resolved from the global INSIDE Sound.unlock() at call time — the laziness is simultaneously AUD-03's guarantee and the only reason a post-boot stub can test it
+- [Phase ?]: Sound event-name strings live in CONFIG.SFX_EVENTS (script 1) because combat/enemies/weapons all load before sound.js; Sound.NAMES is derived from them so the four Phase 5 pickup strings stay byte-identical
+- [Phase ?]: The recorder in Sound.play runs first and unchanged with synthesis below it in try/catch, so a missing or broken audio stack cannot make a dozen Phase 5 assertions vacuous
 
 ### Pending Todos
 
@@ -153,6 +158,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-25T07:14:51.942Z
-Stopped at: Completed 06-02-PLAN.md
+Last session: 2026-07-25T07:45:06.817Z
+Stopped at: Completed 06-03-PLAN.md — phase 6 and the v1.0 milestone are code-complete
 Resume file: None
