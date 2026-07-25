@@ -65,7 +65,18 @@
                               NOT present. Attached through the Game.view seam in
                               place of TopDown. Reads CONFIG/Framebuffer/Level/
                               Player; read by nothing before game.js.
-     11. js/game.js         — defines Game: the requestAnimationFrame loop with
+     11. js/entities.js     — defines Entities: the spawn-derived billboard list
+                              (built from Level.spawns) plus the sprite render
+                              pass. Runs INSIDE Raycaster.render() via the
+                              Raycaster.spritePass seam, AFTER the wall pass fills
+                              zBuffer and BEFORE Game.render's single present().
+                              Projects each entity as a camera-facing billboard
+                              (inverted [dir|plane] matrix), depth-sorts far->near
+                              allocation-free, and draws with a per-column z-buffer
+                              occlusion cut + alpha-key transparency. Reads
+                              Framebuffer/Player/Level/Sprites/Raycaster; read by
+                              nothing before game.js.
+     12. js/game.js         — defines Game: the requestAnimationFrame loop with
                               the CLAMPED delta-time (CONFIG.DT_MAX), the refocus
                               resync, and the two seams. Game.input (an intent
                               source) and Game.view (a buf32 writer that does NOT
@@ -74,15 +85,17 @@
                               lives in CONFIG.DT_MAX; the single Framebuffer
                               present() lives in Game.render() so the once-per-
                               frame blit contract survives every view swap.
-     12. js/main.js         — entry point (needs CONFIG + Framebuffer + assets +
-                              Level + Player + Input + TopDown + Raycaster + Game):
-                              builds the level, spawns the player, wires
+     13. js/main.js         — entry point (needs CONFIG + Framebuffer + assets +
+                              Level + Player + Input + TopDown + Raycaster +
+                              Entities + Game): builds the level, spawns the
+                              player, builds Entities from Level.spawns, wires
                               Game.input = Input and Game.view = Raycaster (with
-                              TopDown.ENABLED = false), attaches resync triggers,
-                              starts the loop.
+                              TopDown.ENABLED = false) and Raycaster.spritePass =
+                              Entities.render, attaches resync triggers, starts the
+                              loop.
       i.e. config -> framebuffer -> textures -> sprites -> preview -> level ->
-      player -> input -> topdown -> raycaster -> game -> main. Order encodes the
-      dependency graph: later files extend earlier globals.
+      player -> input -> topdown -> raycaster -> entities -> game -> main. Order
+      encodes the dependency graph: later files extend earlier globals.
 
       NOT LOADED HERE: everything under tools/. Those are Node-only .cjs
       verification harnesses; the browser never sees them, which is why the
@@ -114,6 +127,7 @@
   <script src="js/input.js"></script>
   <script src="js/topdown.js"></script>
   <script src="js/raycaster.js"></script>
+  <script src="js/entities.js"></script>
   <script src="js/game.js"></script>
   <script src="js/main.js"></script>
 </body>

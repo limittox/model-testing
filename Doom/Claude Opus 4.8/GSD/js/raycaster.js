@@ -43,6 +43,15 @@ var Raycaster = {
   // 03-02 Task 2 replaced the tracer's SOLID base-colour-per-id table with real
   // per-column texture sampling (Level.textureFor -> Textures.map 64x64 buf32).
   // The wall id now selects a texture, not a flat colour.
+
+  // PHASE 4 SPRITE SEAM (04-CONTEXT decision 2). A hook invoked as the LAST
+  // statement of render(), AFTER Pass B has filled zBuffer for every column and
+  // BEFORE Game.render's single present(). main.js points this at
+  // Entities.render so the sprite pass runs inside the existing render loop
+  // without a second view or a second present. null until wired (and in the
+  // Phase-3 render harness, which disables it to keep the wall/floor assertions
+  // unperturbed).
+  spritePass: null,
 };
 
 (function () {
@@ -262,6 +271,14 @@ var Raycaster = {
         buf[yy * W + x] = applyShade(texBuf[(texY << 6) + texX], colShade);
       }
     }
+
+    // ---- SPRITE PASS (Phase 4 seam) ------------------------------------------
+    // The LAST statement of render(): the wall Pass B above has now filled
+    // zBuffer[x] for every column, so the sprite pass can occlude against it.
+    // main.js wires Raycaster.spritePass = Entities.render; it stays null in the
+    // Phase-3 render harness (which verifies the wall/floor contracts in
+    // isolation). Sprites read zBuffer and write buf32; they do NOT present.
+    if (Raycaster.spritePass) Raycaster.spritePass();
   };
 
 })();

@@ -27,6 +27,12 @@ window.addEventListener('load', function () {
   Level.build();
   Player.spawn();
 
+  // Instantiate the static billboard list from the level's spawn markers. Built
+  // AFTER Level.build() (needs Level.spawns) and Sprites.build() (needs the
+  // sprite atlas). Phase 4 renders these as camera-facing billboards; Phase 5
+  // gives them behaviour.
+  Entities.build();
+
   // Wire the two seams. Input feeds intent (keyboard + pointer-lock mouse) into
   // Game.step; Game.view feeds the rendered frame into Game.render.
   //
@@ -38,6 +44,12 @@ window.addEventListener('load', function () {
   Game.input = Input;
   TopDown.ENABLED = false;
   Game.view = Raycaster;
+
+  // PHASE 4 SPRITE SEAM: the sprite pass runs INSIDE Raycaster.render() (its last
+  // statement), after the wall pass fills the z-buffer and before Game.render's
+  // single present(). This keeps Game.view === Raycaster and one present per
+  // frame while drawing occluded billboards on top of the walls.
+  Raycaster.spritePass = Entities.render;
 
   Game.attach();
 
