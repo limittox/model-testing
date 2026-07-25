@@ -387,6 +387,17 @@ function activeProjectiles() {
 // wants with Enemies.add. The spawn-derived enemies stay in Entities.list as
 // billboards, so nothing is orphaned; they are simply not this scenario's actors.
 function scenario(px, py, dx, dy) {
+  // SCENARIO SETUP (Phase 6, 06-01) — NOT an assertion change.
+  // This helper is a partial WORLD REBUILD, and Phase 6 gave the world a state
+  // machine: section 2t kills the player, which latches Game.state to 'dead' for
+  // the rest of the process, and Game.frame freezes the STEP in every state but
+  // playing. Combat.reset() below clears the dead LATCH but deliberately does not
+  // touch the state machine (js/combat.js owns stats, js/game.js owns the state) —
+  // in production the only thing that rebuilds the world is Game.restart(), which
+  // ends by entering the playing state. This line gives the helper the same
+  // property, so the raf-driven run in section 5 keeps advancing the simulation.
+  // No assertion, label, expectation or count in this file is touched.
+  Game.setState('playing');
   Enemies.reset();
   Combat.reset();
   Enemies.list.length = 0;

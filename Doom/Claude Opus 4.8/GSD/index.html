@@ -140,10 +140,11 @@
                               It draws through the Canvas 2D API and NEVER calls
                               putImageData/getImageData on either context, so the
                               single-blit-per-frame contract that Game.render owns
-                              is untouched. In THIS plan it draws the title and
-                              victory screens (06-02 adds the in-game status bar,
-                              crosshair, minimap and damage flash, and 06-01's
-                              Task 2 adds the death screen). It adds NO message
+                              is untouched. In THIS plan it draws the title,
+                              victory and death screens (06-02 adds the in-game
+                              status bar, crosshair, minimap and damage flash —
+                              in the playing state it currently draws nothing at
+                              all). It adds NO message
                               renderer: Game.renderMessage stays the sole one
                               (D-02). Dispatched from Game.render AFTER
                               Framebuffer.present(); it needs Framebuffer, and

@@ -576,6 +576,22 @@ var Game = {
   Game.checkEndConditions = function () {
     if (Game.state !== Game.STATES.PLAYING) return false;
 
+    // DEATH (LVL-05) IS TESTED FIRST, AND THE PRECEDENCE IS THE POINT. Combat.dead
+    // is a LATCH — js/combat.js sets it the instant health hits 0 and nothing but
+    // Combat.reset() clears it — so this branch fires on the very frame the player
+    // died, before any further frame can be simulated.
+    //
+    // Testing victory first would hand a WIN to a player killed by the fireball
+    // that was already in the air as they stepped into the exit alcove. They lost.
+    // The two conditions genuinely overlap (the alcove is guarded by the (14,20)
+    // enemy), so this is not a theoretical ordering — assertion 2e drives exactly
+    // that pose and pairs it with the same pose ALIVE, which must yield victory.
+    if (typeof Combat !== 'undefined' && Combat.dead === true) {
+      stampResult();
+      Game.setState(Game.STATES.DEAD);
+      return true;
+    }
+
     // VICTORY (LVL-04): within CONFIG.EXIT_RADIUS of the DERIVED exit marker. A
     // map with no exit simply has no victory condition — Level.build() has already
     // pushed a warning about it — rather than an exception in the frame path.

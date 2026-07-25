@@ -530,6 +530,356 @@ const titleFrame = (function () {
 })();
 
 // ===========================================================================
+// ===========================================================================
+// SECTION 2 — THE DEATH BRANCH, THE FOUR-STATE RENDER MATRIX, AND THE
+//             EXHAUSTIVE RESTART RESET (LVL-05).
+// ===========================================================================
+// ===========================================================================
+
+// Put the world into a known playing state: a clean rebuild, then enter playing.
+function freshPlaying() {
+  Game.restart();
+  releaseAll();
+}
+
+// KILL THE PLAYER through the real damage path. The amount has to clear health
+// AND armor: js/combat.js's locked formula absorbs min(armor, floor(dmg/3)), so
+// health + armor + 10 is the smallest amount that is lethal at ANY armor value.
+// (A naive health + 10 is NOT lethal once the player is wearing armor — which is
+// exactly the trap this helper exists to keep out of the scenarios.)
+function killPlayer() {
+  return Combat.damagePlayer(Combat.health + Combat.armor + 10);
+}
+
+// The enemy nearest the player, DERIVED rather than indexed. Enemies.list is in
+// row-major spawn order, so list[0] is whichever marker the map happens to declare
+// first — in the shipped map that is the north-east hall enemy, which cannot see
+// the start room and correctly never moves. A pursuit control has to name the
+// enemy that is actually in pursuit.
+function nearestEnemy() {
+  let best = null;
+  let bestD = Infinity;
+  for (const e of Enemies.list) {
+    if (e.alive !== true) continue;
+    const d = Math.hypot(e.x - Player.x, e.y - Player.y);
+    if (d < bestD) { bestD = d; best = e; }
+  }
+  return best;
+}
+
+// ===========================================================================
+// 2a + 2b. DEATH — the transition tracks the Combat.dead LATCH, not the mere
+//          fact that damage happened.
+// ===========================================================================
+(function () {
+  freshPlaying();
+  const lost = killPlayer();
+  assert(Combat.dead === true && Combat.health === 0 && lost > 0,
+    '2a-0. setup: a lethal hit (' + lost + ' health lost) latched Combat.dead and floored ' +
+    'health at 0');
+  Game.kills = 2;
+  Game.step(FRAME_DT);
+  assert(Game.state === S.DEAD,
+    '2a-i. ONE step after the dead latch moved the state playing -> DEAD');
+  assert(Game.result.kills === 2 && Game.result.totalKills === Game.totalKills &&
+    Game.result.time === Game.time,
+    '2a-ii. Game.result was stamped from the live counters at the death transition (' +
+    Game.result.kills + '/' + Game.result.totalKills + ' at ' + Game.result.time.toFixed(3) + 's)');
+
+  // CONTROL: the IDENTICAL setup with a NON-lethal amount. Damage happened, the
+  // player is hurt, and the state does not move.
+  freshPlaying();
+  const before = Combat.health;
+  const minor = Combat.damagePlayer(5);
+  Game.step(FRAME_DT);
+  assert(minor > 0 && Combat.health > 0 && Combat.health < before && Combat.dead === false &&
+    Game.state === S.PLAYING,
+    '2b. CONTROL for 2a: the same setup with a NON-lethal 5 damage leaves health at ' +
+    Combat.health + ' (> 0, and really lost ' + lost + ') and the state at PLAYING — the ' +
+    'transition tracks the dead LATCH, not the fact that damage occurred');
+})();
+
+// ===========================================================================
+// 2c + 2d. THE DEATH FREEZE, AND THE CONTROL THAT MAKES IT NON-VACUOUS.
+// ===========================================================================
+(function () {
+  // 2d FIRST, so the control establishes that this exact pose DOES produce enemy
+  // movement before 2c claims 120 frames of it produced none.
+  freshPlaying();
+  // The start-room enemies see the player from the spawn pose, so a plain playing
+  // drive is enough to put the NEAREST one in pursuit.
+  const chased = nearestEnemy();
+  const cx = chased.x, cy = chased.y;
+  frames(120);
+  const movedEnemy = Math.hypot(chased.x - cx, chased.y - cy);
+  assert(movedEnemy > 0.05,
+    '2d. CONTROL for 2c: 120 real frames in PLAYING move the pursuing enemy ' +
+    movedEnemy.toFixed(3) + ' cells — the frozen measurement below is non-vacuous');
+
+  // 2c: the SAME driver, the SAME world, in the DEAD state.
+  killPlayer();
+  Game.step(FRAME_DT);
+  assert(Game.state === S.DEAD, '2c-0. setup: the world is now in the DEAD state');
+
+  const before = {
+    enemies: enemyPoses().join('|'),
+    projectiles: projFlags(),
+    time: Game.time,
+    health: Combat.health,
+    puts: h.putCount()
+  };
+  frames(120);
+  const puts = h.putCount() - before.puts;
+
+  assert(enemyPoses().join('|') === before.enemies,
+    '2c-i. 120 real frames in DEAD leave every enemy position/state/health byte-identical');
+  assert(projFlags() === before.projectiles,
+    '2c-ii. those 120 frames leave every projectile active flag identical (' +
+    before.projectiles + ')');
+  assert(Game.time === before.time && Combat.health === before.health,
+    '2c-iii. those 120 frames leave Game.time and Combat.health byte-identical');
+  assert(puts === 120,
+    '2c-iv. h.putCount() STILL advanced by exactly 120 across the frozen frames (' + puts +
+    ') — the death screen sits over a rendered world, not a black one');
+})();
+
+// ===========================================================================
+// 2i. THE DEATH SCREEN IS DRAWN — with the PLAYING recording as the control.
+// ===========================================================================
+(function () {
+  const dead = recordFrame();
+  const deadTexts = textsOf(dead);
+  assert(deadTexts.some((t) => t.indexOf(HUD.DEAD_HEADING) >= 0),
+    '2i-i. a DEAD frame records the death heading ("' + HUD.DEAD_HEADING + '")');
+  assert(deadTexts.some((t) => t.indexOf(HUD.DEAD_PROMPT) >= 0),
+    '2i-ii. a DEAD frame records the restart prompt ("' + HUD.DEAD_PROMPT + '") — LVL-05\'s ' +
+    'restart affordance is on screen');
+  assert(deadTexts.some((t) => t.indexOf('KILLS') >= 0) &&
+    deadTexts.some((t) => t.indexOf('TIME') >= 0),
+    '2i-iii. the DEAD frame draws the SAME two stat readouts as the victory screen [' +
+    deadTexts.join(' | ') + ']');
+
+  // CONTROL: a PLAYING frame contains neither. (06-02 will fill the playing state
+  // with the status bar; this assertion is about the END-SCREEN copy, which must
+  // never appear during play.)
+  //
+  // freshPlaying(), not a bare setState: Combat.dead is still LATCHED from the
+  // scenario above, so a mere state assignment would be undone by the very first
+  // frame — the death branch would correctly fire again and this "playing" control
+  // would record the death screen. Clearing the latch is what makes it a control.
+  freshPlaying();
+  const playing = recordFrame();
+  const playTexts = textsOf(playing);
+  assert(!playTexts.some((t) => t.indexOf(HUD.DEAD_HEADING) >= 0) &&
+    !playTexts.some((t) => t.indexOf(HUD.DEAD_PROMPT) >= 0),
+    '2i-iv. CONTROL for 2i: a PLAYING frame records NEITHER the death heading nor the restart ' +
+    'prompt (' + playTexts.length + ' text lines)');
+})();
+
+// ===========================================================================
+// 2e. PRECEDENCE — dying ON the exit is a LOSS, not a win.
+// ===========================================================================
+(function () {
+  const e = Level.exit;
+
+  // The control FIRST: the same pose, ALIVE, yields victory.
+  freshPlaying();
+  placeAt(e.x, e.y, 1, 0);
+  Game.step(FRAME_DT);
+  assert(Game.state === S.VICTORY,
+    '2e-i. CONTROL for 2e: standing on the exit ALIVE yields VICTORY from that exact pose');
+
+  // Now the same pose, dead.
+  freshPlaying();
+  placeAt(e.x, e.y, 1, 0);
+  killPlayer();
+  Game.step(FRAME_DT);
+  assert(Game.state === S.DEAD,
+    '2e-ii. a player who dies while standing ON the exit ends in DEAD, not victory — the dead ' +
+    'branch is tested BEFORE the exit branch, so the fireball already in the air still wins');
+})();
+
+// ===========================================================================
+// 2f. RESTART FROM DEATH — one canvas click on the death screen resumes play.
+// ===========================================================================
+assert(Game.state === S.DEAD, '2f-0. setup: the world is in the DEAD state');
+h.dispatch('game', 'click');
+assert(Game.state === S.PLAYING,
+  '2f. one canvas click on the DEATH screen returned the state to playing');
+
+// ===========================================================================
+// 2g. THE EXHAUSTIVE RESET — run after restarting from BOTH end states.
+//
+// EVERY field is PERTURBED before the restart, so no assertion here can pass
+// because the value never moved in the first place. Expectations are written
+// against CONFIG and against counts DERIVED from Level.spawns, never literals, so
+// a future map or tuning edit moves the expectation with the map.
+// ===========================================================================
+function perturbEverything() {
+  Combat.damagePlayer(37);                 // health down, lastDamageAt stamped, totalDamageTaken up
+  Combat.addArmor(40);                     // armor up
+  Combat.grantShotgun();                   // hasShotgun true (+ shells)
+  Combat.selectWeapon(Combat.SHOTGUN);     // weapon off the pistol
+  Combat.ammo.bullets = 3;                 // ammo spent
+  hold('Space');
+  Weapons.update(FRAME_DT, Input.readIntent());  // shotsFired up
+  releaseAll();
+  Weapons.fire();                          // and again, for good measure
+  Enemies.hurt(Enemies.list[0], 9999);     // a kill: Game.kills up, an enemy dead
+  Pickups.list[0].active = false;           // an item collected
+  Game.message('PERTURBED');                // a posted message
+  Sound.play('pickupHealth');               // a recorded sound
+  placeAt(Level.LANDMARKS.openCell.x, Level.LANDMARKS.openCell.y, 0, 1); // walked away
+  for (let i = 0; i < 10; i++) Game.step(FRAME_DT);  // Game.time well off 0
+}
+
+function assertCleanWorld(via) {
+  const ps = Level.playerStart;
+  const p = via + ': ';
+  assert(Game.time === 0, p + 'Game.time is 0');
+  assert(Game.kills === 0, p + 'Game.kills is 0');
+  assert(Game.totalKills === enemyMarkers(),
+    p + 'Game.totalKills is the spawn-derived enemy marker count (' + Game.totalKills + ')');
+  assert(Game.messagesPosted === 0 && Game.activeMessage() === null,
+    p + 'the message ring is empty (messagesPosted 0, no active message)');
+  assert(Combat.health === CONFIG.PLAYER_START_HEALTH && Combat.armor === CONFIG.PLAYER_START_ARMOR,
+    p + 'health/armor are at their CONFIG start values (' + Combat.health + '/' + Combat.armor + ')');
+  assert(Combat.ammo.bullets === CONFIG.PLAYER_START_BULLETS &&
+    Combat.ammo.shells === CONFIG.PLAYER_START_SHELLS,
+    p + 'ammo is at its CONFIG start values (' + Combat.ammo.bullets + ' bullets / ' +
+    Combat.ammo.shells + ' shells)');
+  assert(Combat.weapon === Combat.PISTOL && Combat.hasShotgun === false,
+    p + 'the weapon is back to the pistol and the shotgun grant is revoked');
+  assert(Combat.dead === false && Combat.lastDamageAt === -1 && Combat.totalDamageTaken === 0,
+    p + 'the dead latch is clear, lastDamageAt is the -1 sentinel and totalDamageTaken is 0');
+  assert(Weapons.shotsFired === 0 && Weapons.dryFires === 0,
+    p + 'Weapons.shotsFired and Weapons.dryFires are 0');
+  assert(near(Player.x, ps.x, 1e-12) && near(Player.y, ps.y, 1e-12) &&
+    near(Player.dirX, ps.dirX, 1e-12) && near(Player.dirY, ps.dirY, 1e-12),
+    p + 'the player is at Level.playerStart with the start facing');
+  assert(Enemies.list.length === enemyMarkers() &&
+    Enemies.list.every((e) => e.alive === true && e.health === CONFIG.ENEMY_HEALTH &&
+      e.sprite === 'enemyIdle'),
+    p + 'all ' + Enemies.list.length + ' enemies are alive at full health on their idle sprite');
+  assert(Pickups.list.length > 0 && Pickups.list.every((e) => e.active === true),
+    p + 'all ' + Pickups.list.length + ' pickups are active again');
+  assert(Sound.count === 0, p + 'the Sound recorder is clear (count 0)');
+}
+
+// --- 2g via VICTORY --------------------------------------------------------
+(function () {
+  freshPlaying();
+  perturbEverything();
+  // Prove the perturbation actually took, or every assertion below is vacuous.
+  assert(Game.time > 0 && Game.kills > 0 && Combat.health < CONFIG.PLAYER_START_HEALTH &&
+    Combat.hasShotgun === true && Combat.weapon === Combat.SHOTGUN &&
+    Combat.ammo.bullets !== CONFIG.PLAYER_START_BULLETS && Weapons.shotsFired > 0 &&
+    Combat.lastDamageAt >= 0 && Combat.totalDamageTaken > 0 && Game.messagesPosted > 0 &&
+    Sound.count > 0 && Pickups.list.some((e) => e.active !== true) &&
+    Enemies.list.some((e) => e.alive !== true),
+    '2g-0a. setup: every field 2g asserts was PERTURBED off its boot value first (time ' +
+    Game.time.toFixed(2) + ', kills ' + Game.kills + ', health ' + Combat.health + ', shots ' +
+    Weapons.shotsFired + ')');
+
+  placeAt(Level.exit.x, Level.exit.y, 1, 0);
+  Game.step(FRAME_DT);
+  assert(Game.state === S.VICTORY, '2g-0b. setup: reached VICTORY with a perturbed world');
+
+  h.dispatch('game', 'click');
+  assertCleanWorld('2g-V (restart from VICTORY)');
+})();
+
+// --- 2g via DEATH ----------------------------------------------------------
+(function () {
+  perturbEverything();
+  killPlayer();
+  Game.step(FRAME_DT);
+  assert(Game.state === S.DEAD, '2g-0c. setup: reached DEAD with a perturbed world');
+
+  h.dispatch('game', 'click');
+  assertCleanWorld('2g-D (restart from DEATH)');
+})();
+
+// ===========================================================================
+// 2h. RESTART IS REPEATABLE — nothing grows and no ghosts accumulate.
+// ===========================================================================
+(function () {
+  const sizes = [];
+  const ghostCounts = [];
+
+  // The GHOST DETECTOR: two entities that are not explicitly inactive sharing BOTH
+  // a position and a sprite name are the signature of a rebuild that appended
+  // instead of replacing.
+  function ghosts() {
+    const seen = Object.create(null);
+    let n = 0;
+    for (const e of Entities.list) {
+      if (e.active === false) continue;
+      const key = e.x + ',' + e.y + ',' + e.sprite;
+      if (seen[key]) n += 1;
+      else seen[key] = true;
+    }
+    return n;
+  }
+
+  for (let i = 0; i < 3; i++) {
+    Game.restart();
+    sizes.push(Entities.list.length + '/' + Enemies.list.length + '/' + Pickups.list.length);
+    ghostCounts.push(ghosts());
+  }
+
+  assert(sizes[0] === sizes[1] && sizes[1] === sizes[2],
+    '2h-i. three consecutive restarts leave Entities/Enemies/Pickups list lengths IDENTICAL (' +
+    sizes.join('  ') + ') — nothing grows');
+  assert(sizes[0] === (spawnBillboards() + CONFIG.PROJ_POOL) + '/' + enemyMarkers() + '/' +
+    (spawnBillboards() - enemyMarkers()),
+    '2h-ii. and those lengths are exactly the SPAWN-DERIVED counts (' + sizes[0] + ')');
+  assert(ghostCounts.every((n) => n === 0),
+    '2h-iii. the ghost detector finds no duplicate position+sprite pair after any of the three ' +
+    'restarts (' + ghostCounts.join(',') + ')');
+})();
+
+// ===========================================================================
+// 2j. THE PRESENT MATRIX — across a drive that visits ALL FOUR states, the world
+//     presents exactly once per frame and the overlay never blits.
+// ===========================================================================
+(function () {
+  freshPlaying();
+  const puts0 = h.putCount();
+  let driven = 0;
+  let blits = 0;
+  const visited = Object.create(null);
+
+  function drive(n) {
+    for (let i = 0; i < n; i++) {
+      const calls = recordFrame();
+      blits += blitsOf(calls);
+      driven += 1;
+      visited[Game.state] = true;
+    }
+  }
+
+  Game.setState(S.TITLE);
+  drive(10);
+  Game.setState(S.PLAYING);
+  drive(10);
+  Game.setState(S.VICTORY);
+  drive(10);
+  Game.setState(S.DEAD);
+  drive(10);
+
+  const puts = h.putCount() - puts0;
+  assert(Object.keys(visited).sort().join(',') === 'dead,playing,title,victory',
+    '2j-i. the drive really visited all FOUR states (' + Object.keys(visited).sort().join(',') + ')');
+  assert(puts === driven,
+    '2j-ii. h.putCount() equals the number of frames driven across all four states (' + puts +
+    ' === ' + driven + ') — exactly one present per frame in EVERY state');
+  assert(blits === 0,
+    '2j-iii. ZERO putImageData/getImageData calls were recorded on the hud context across the ' +
+    'whole four-state drive (D-01: the overlay composites, it never blits)');
+})();
+
+// ===========================================================================
 // 1g (second half). Re-assert at the END of the run: nothing built a context.
 // ===========================================================================
 noAudioContext('1g-ii. at the END of the run (after clicks, restarts and hundreds of frames): ' +

@@ -93,8 +93,13 @@ var HUD = {
   var TITLE_HEADING = 'DOOM CLONE';
   var TITLE_PROMPT = 'CLICK TO BEGIN';
 
+  // (The victory and death prompts are likewise distinct rather than variations
+  // on one stem, for the same falsifiability reason.)
   var VICTORY_HEADING = 'VICTORY';
   var VICTORY_PROMPT = 'CLICK TO PLAY AGAIN';
+
+  var DEAD_HEADING = 'YOU DIED';
+  var DEAD_PROMPT = 'CLICK TO TRY AGAIN';
 
   // The controls list (LVL-06: the title screen must SHOW the controls). Built
   // once, here, at module load. Each entry names a physical control and what it
@@ -277,6 +282,16 @@ var HUD = {
       HUD.screen = S.VICTORY;
       return true;
     }
+    // THE DEATH SCREEN (LVL-05) goes through the SAME drawEnd as the victory
+    // screen — same layout, same stat formatter, same Game.result source. Only the
+    // heading and the prompt differ, which is the whole reason they cannot drift
+    // apart into two subtly different readouts. The prompt IS the restart
+    // affordance LVL-05 asks for: a click here calls Game.restart().
+    if (state === S.DEAD) {
+      drawEnd(ctx, m, DEAD_HEADING, DEAD_PROMPT);
+      HUD.screen = S.DEAD;
+      return true;
+    }
     // An UNKNOWN state falls through here having painted only the scrim — fails
     // closed to "something is covering the world", never to a silent playing HUD.
     return false;
@@ -313,6 +328,8 @@ var HUD = {
   HUD.TITLE_PROMPT = TITLE_PROMPT;
   HUD.VICTORY_HEADING = VICTORY_HEADING;
   HUD.VICTORY_PROMPT = VICTORY_PROMPT;
+  HUD.DEAD_HEADING = DEAD_HEADING;
+  HUD.DEAD_PROMPT = DEAD_PROMPT;
   HUD.CONTROLS = CONTROLS;
 
 })();
