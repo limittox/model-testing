@@ -834,4 +834,94 @@ function opaqueTexelAt(pose, e, W, H, x, y) {
     'layering follows the far->near sort, not list order' + (nearWinsB ? '' : ' — lost at ' + JSON.stringify(badB)));
 })();
 
+// ===========================================================================
+// 9. PHASE 5 SPRITE FRAMES (05-01 Task 1). The enemy animation frames and the
+//    fireball must satisfy the SAME asset contract every Phase 4 proof above
+//    stands on: they resolve in Sprites.map, they are byte-identical across two
+//    builds (determinism from the seeded stream), and every texel alpha is
+//    exactly 0 or 255 (binary alpha — the structural reason there is no halo).
+//    The legacy 'enemy' key must still resolve to the IDLE frame, which is why
+//    section 1's descriptor/count assertions and sections 2-8's pixel proofs
+//    needed no edit in Task 1.
+// ===========================================================================
+(function () {
+  const FRAMES = ['enemyIdle', 'enemyWalk1', 'enemyWalk2', 'enemyAttack', 'fireball'];
+
+  let allResolve = true, missing = null;
+  for (const name of FRAMES) {
+    if (!Sprites.map[name] || !Sprites.map[name].buf32) { allResolve = false; missing = name; }
+    if (Sprites.names.indexOf(name) < 0) { allResolve = false; missing = name + ' (not in Sprites.names)'; }
+  }
+  assert(allResolve,
+    '9a. all five Phase 5 frames resolve in Sprites.map and are listed in Sprites.names' +
+    (allResolve ? '' : ' — missing ' + missing));
+
+  // Binary alpha: every texel is exactly 0 or 255, never a computed value.
+  let binaryAlpha = true, badFrame = null;
+  for (const name of FRAMES) {
+    const tex = Sprites.map[name];
+    for (let i = 0; i < tex.buf32.length; i++) {
+      const a = (tex.buf32[i] >>> 24) & 0xff;
+      if (a !== 0 && a !== 255) { binaryAlpha = false; badFrame = name; break; }
+    }
+    if (!binaryAlpha) break;
+  }
+  assert(binaryAlpha,
+    '9b. every texel alpha in all five Phase 5 frames is exactly 0 or 255' +
+    (binaryAlpha ? '' : ' — ' + badFrame + ' has a partial-alpha texel'));
+
+  // Non-vacuity: each frame actually has BOTH opaque and transparent texels (an
+  // all-transparent asset would pass 9b trivially).
+  let nonVacuous = true, emptyFrame = null;
+  for (const name of FRAMES) {
+    const tex = Sprites.map[name];
+    let opaque = 0, clear = 0;
+    for (let i = 0; i < tex.buf32.length; i++) {
+      if (((tex.buf32[i] >>> 24) & 0xff) >= Sprites.ALPHA_KEY) opaque++; else clear++;
+    }
+    if (opaque === 0 || clear === 0) { nonVacuous = false; emptyFrame = name; }
+  }
+  assert(nonVacuous,
+    '9c. CONTROL (non-vacuity): every Phase 5 frame carries BOTH opaque and transparent texels' +
+    (nonVacuous ? '' : ' — ' + emptyFrame + ' is degenerate'));
+
+  // Determinism: a SECOND build produces byte-identical buffers for every frame.
+  const firstBuild = {};
+  for (const name of FRAMES) firstBuild[name] = Sprites.map[name].buf32.slice();
+  Sprites.build();
+  let deterministic = true, driftFrame = null;
+  for (const name of FRAMES) {
+    const now = Sprites.map[name].buf32;
+    const was = firstBuild[name];
+    if (now.length !== was.length) { deterministic = false; driftFrame = name; break; }
+    for (let i = 0; i < now.length; i++) {
+      if (now[i] !== was[i]) { deterministic = false; driftFrame = name; break; }
+    }
+    if (!deterministic) break;
+  }
+  assert(deterministic,
+    '9d. every Phase 5 frame is byte-identical across two Sprites.build() calls (seeded determinism)' +
+    (deterministic ? '' : ' — ' + driftFrame + ' drifted'));
+
+  // The legacy key is an ALIAS for the idle frame — same object, so no Phase 4
+  // consumer that names 'enemy' can diverge from what the AI draws when idle.
+  assert(Sprites.map.enemy === Sprites.map.enemyIdle,
+    '9e. the legacy Sprites.map.enemy key IS the idle frame asset (strict identity alias)');
+
+  // The four enemy frames are genuinely DIFFERENT poses, not four copies.
+  let allDistinct = true, samePair = null;
+  const poses = ['enemyIdle', 'enemyWalk1', 'enemyWalk2', 'enemyAttack'];
+  for (let a = 0; a < poses.length; a++) {
+    for (let b = a + 1; b < poses.length; b++) {
+      const A = Sprites.map[poses[a]].buf32, B = Sprites.map[poses[b]].buf32;
+      let differs = false;
+      for (let i = 0; i < A.length; i++) { if (A[i] !== B[i]) { differs = true; break; } }
+      if (!differs) { allDistinct = false; samePair = poses[a] + '/' + poses[b]; }
+    }
+  }
+  assert(allDistinct,
+    '9f. the four enemy frames are pairwise DISTINCT (the walk cycle actually animates)' +
+    (allDistinct ? '' : ' — ' + samePair + ' are identical'));
+})();
+
 finish('ALL_SPRITE_CONTRACTS_PASS');

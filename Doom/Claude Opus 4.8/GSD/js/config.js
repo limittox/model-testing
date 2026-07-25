@@ -94,5 +94,70 @@ var CONFIG = {
   MIN_SHADE: 0.28,   // brightness floor — keep silhouettes readable
   SIDE_SHADE: 0.70,  // constant multiplier for side==1 (y-side) walls — depth cue
   // FOG_COLOR: the ambient the far distance fades toward (matches CLEAR_COLOR).
-  FOG_COLOR: packRGBA(24, 26, 34)
+  FOG_COLOR: packRGBA(24, 26, 34),
+
+  // ===========================================================================
+  // PHASE 5 — ENEMY AI, PROJECTILES AND PLAYER COMBAT STATE (05-CONTEXT D-11:
+  // ALL tuning numbers live here; js/enemies.js and js/combat.js contain no
+  // magic numbers).
+  // ===========================================================================
+
+  // --- Enemy body + movement ---
+  // ENEMY_RADIUS: collision radius in cells, fed to the SHARED per-axis slide
+  // (Player.slideMove). 0.35 gives a 0.70-cell footprint, which fits a one-cell
+  // corridor with 0.30 cells of total slack — that tightness is exactly why the
+  // chase steer needs the corner recovery below.
+  ENEMY_RADIUS: 0.35,
+  // ENEMY_SPEED: cells per second. DERIVED PER-FRAME STEP at the delta clamp:
+  // ENEMY_SPEED * DT_MAX = 1.6 * 0.05 = 0.08 cells. That MUST stay well under
+  // one cell, for exactly the reason Player.maxStepPerFrame() documents: the
+  // slide tests the LEADING EDGE of the destination, so tunneling a one-cell
+  // wall requires a single-frame step of at least one whole cell.
+  ENEMY_SPEED: 1.6,
+  ENEMY_HEALTH: 40,           // hit points; Enemies.hurt subtracts from this
+
+  // --- Enemy senses + attack timing (seconds / cells) ---
+  ENEMY_SIGHT_RANGE: 12.0,    // idle -> chase needs BOTH range AND clear LOS
+  ENEMY_ATTACK_RANGE: 8.0,    // chase -> attack needs LOS + this range + cooldown
+  ENEMY_STOP_RANGE: 2.0,      // stop closing at this distance (never body-blocks)
+  ENEMY_ATTACK_COOLDOWN: 1.6, // seconds between attack ENTRIES — one fireball per
+  ENEMY_ATTACK_WINDUP: 0.35,  // telegraph before the projectile leaves the hand
+  ENEMY_WALK_FRAME_TIME: 0.22,// seconds per walk frame (two-frame walk cycle)
+
+  // --- Corner recovery (the bounded wall-follow) ---
+  // A chasing enemy that presses into a wall face or a concave corner makes no
+  // progress: the direct steer keeps pushing into geometry forever. These two
+  // constants bound the recovery.
+  //
+  // ENEMY_STUCK_EPSILON is a DIMENSIONLESS FRACTION OF THE REQUESTED STEP, not
+  // an absolute cell distance. The predicate is written literally as
+  //     travelled < CONFIG.ENEMY_STUCK_EPSILON * requested
+  // where `requested` is ENEMY_SPEED * dt. Read as an absolute distance it would
+  // flag EVERY enemy as stuck (a 60 fps request is only ~0.027 cells).
+  ENEMY_STUCK_EPSILON: 0.2,
+  // ENEMY_UNSTICK_TIME: seconds the concave-corner wall-follow is latched for.
+  // Latching (rather than re-deciding every frame) is what keeps the escape
+  // stable and reproducible headlessly instead of dithering on the corner.
+  ENEMY_UNSTICK_TIME: 0.5,
+
+  // --- Enemy projectile (the fireball) ---
+  // PROJ_SPEED derived per-frame step at the clamp: 5.0 * 0.05 = 0.25 cells —
+  // again well under one cell, so a projectile can never skip over a one-cell
+  // wall between two solidity tests (threat T-05-05).
+  PROJ_SPEED: 5.0,
+  PROJ_DAMAGE: 12,            // raw damage BEFORE the armor absorption formula
+  PROJ_HIT_RADIUS: 0.35,      // cells; distance to the player that counts as a hit
+  PROJ_POOL: 24,              // preallocated projectile entities — never grown
+  PROJ_SCALE: 0.30,           // billboard scale (small, bright orb)
+
+  // --- Player combat state (D-04) ---
+  PLAYER_MAX_HEALTH: 100,
+  PLAYER_MAX_ARMOR: 100,
+  PLAYER_START_HEALTH: 100,
+  PLAYER_START_ARMOR: 0,
+  PLAYER_START_BULLETS: 50,
+  PLAYER_START_SHELLS: 0,
+  // ARMOR_ABSORB_DIVISOR: the Doom green-armor fraction. The LOCKED formula is
+  //   absorbed = min(armor, floor(dmg / ARMOR_ABSORB_DIVISOR))
+  ARMOR_ABSORB_DIVISOR: 3
 };

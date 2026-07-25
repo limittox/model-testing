@@ -105,6 +105,60 @@ function angleDiff(a, b) {
 }
 
 // ===========================================================================
+// Assertion 0 (Phase 5 preparation, 05-01 Task 1) — THE SHARED SLIDE.
+//
+// The D-06 per-axis collision is now a radius-parameterised routine that the
+// enemy AI reuses (Player.slideMove). Assertions 1-13 below are UNCHANGED and
+// are themselves the proof that extracting it did not alter observed PLAYER
+// behaviour; these assertions prove the GENERALIZED contract the enemies need:
+// an arbitrary object, at an arbitrary radius, gets the player's exact semantics
+// and the travelled distance is reported back.
+// ===========================================================================
+(function () {
+  const R = CONFIG.ENEMY_RADIUS;
+
+  // --- 0b(i) blocked axis is arrested while the free axis still resolves ------
+  const L = Level.LANDMARKS.wallFaceEast;
+  const obj = { x: L.wf - 0.5, y: L.my + 0.5 };
+  const x0 = obj.x, y0 = obj.y;
+  const travelled = Player.slideMove(obj, 0.3, 0.2, R);
+  const blockedOk = near(obj.x, x0, 1e-12);      // X pushed into the face: rejected
+  const freeOk = near(obj.y, y0 + 0.2, 1e-12);   // Y still resolved
+  assert(blockedOk && freeOk,
+    '0b. slideMove on a PLAIN object at radius ENEMY_RADIUS: the wall-blocked axis is unchanged ' +
+    'while the free axis still resolves');
+  assert(near(travelled, 0.2, 1e-12),
+    '0c. slideMove RETURNS the distance actually travelled (' + travelled.toFixed(4) +
+    ' == the free-axis move, not the requested diagonal)');
+
+  // Both axes blocked -> zero travel reported (what the chase steer detects).
+  const jam = { x: L.wf - 0.5, y: L.my + 0.5 };
+  const jamTravel = Player.slideMove(jam, 0.3, 0, R);
+  assert(near(jamTravel, 0, 1e-12) && near(jam.x, L.wf - 0.5, 1e-12),
+    '0d. a fully rejected slide reports travelled 0 and leaves the object where it was');
+
+  // --- 0b(ii) X COMMITS BEFORE Y ---------------------------------------------
+  // The corridor down column 4: (3,9) is solid, (4,9) is open, (3,8)/(4,8) open.
+  // From (3.5, 8.8) a (+0.9, +0.3) step is a DISCRIMINATING case: the Y move is
+  // legal against the POST-X x (4.4) and ILLEGAL against the pre-move x (3.5).
+  assert(Level.isSolid(3, 9) && !Level.isSolid(4, 9) && !Level.isSolid(3, 8) && !Level.isSolid(4, 8),
+    '0e. precondition: (3,9) solid, (4,9)/(3,8)/(4,8) open — an inside corner at the corridor mouth');
+
+  const preX = 3.5, preY = 8.8, newY = 9.1;
+  const staleWouldReject = Player.canOccupyYFor(preX, preY, newY, R) === false;
+  const committedAccepts = Player.canOccupyYFor(4.4, preY, newY, R) === true;
+  assert(staleWouldReject && committedAccepts,
+    '0f. the discriminating case is real: the Y move is REJECTED against the pre-move x (3.5) ' +
+    'and ACCEPTED against the committed x (4.4)');
+
+  const corner = { x: preX, y: preY };
+  Player.slideMove(corner, 0.9, 0.3, R);
+  assert(near(corner.x, 4.4, 1e-12) && near(corner.y, newY, 1e-12),
+    '0g. slideMove resolves X, COMMITS it, then tests Y against the committed x ' +
+    '(landed at ' + corner.x.toFixed(2) + ',' + corner.y.toFixed(2) + ')');
+})();
+
+// ===========================================================================
 // Assertion 1 — clamp constant.
 // ===========================================================================
 assert(near(CONFIG.DT_MAX, 0.05, 1e-12), '1. CONFIG.DT_MAX is 0.05');

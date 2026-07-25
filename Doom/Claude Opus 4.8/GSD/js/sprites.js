@@ -35,7 +35,10 @@ var Sprites = {
   // name -> asset dictionary, populated by build(). Insertion order is stable.
   map: {},
 
-  names: ['enemy', 'pickup', 'weapon'],
+  names: ['enemy', 'pickup', 'weapon',
+          // Phase 5 (05-CONTEXT D-09): the enemy animation frames the AI picks
+          // per frame, plus the enemy's ranged attack projectile.
+          'enemyIdle', 'enemyWalk1', 'enemyWalk2', 'enemyAttack', 'fireball'],
 
   built: false,
 
@@ -45,7 +48,19 @@ var Sprites = {
 
   build: function () {
     var m = {};
-    m.enemy = Sprites.makeEnemy(101);
+    // Phase 5 enemy animation frames. Every frame is the SAME horned-demon
+    // silhouette with per-pose limb offsets, each from its OWN stable salt so the
+    // dither is deterministic and independent per frame.
+    m.enemyIdle = Sprites.makeEnemy(101, 'idle');
+    m.enemyWalk1 = Sprites.makeEnemy(111, 'walk1');
+    m.enemyWalk2 = Sprites.makeEnemy(112, 'walk2');
+    m.enemyAttack = Sprites.makeEnemy(113, 'attack');
+    m.fireball = Sprites.makeFireball(121);
+    // LEGACY KEY: 'enemy' is an ALIAS for the idle frame (same asset object, same
+    // salt 101 the Phase 4 art shipped with), so every Phase 4 consumer that
+    // names 'enemy' — including tools/verify-sprites.cjs's pixel proofs — keeps
+    // working byte-for-byte untouched.
+    m.enemy = m.enemyIdle;
     m.pickup = Sprites.makePickup(202);
     m.weapon = Sprites.makeWeapon(303);
     Sprites.map = m;
@@ -168,26 +183,57 @@ var Sprites = {
   // ENEMY — 64x64 standing horned demon: horns, glowing eyes, fanged mouth,
   // tapering torso, clawed arms, planted feet. Square and bottom-aligned so the
   // Phase 4 billboard pass can anchor it on the floor.
+  //
+  // POSE-PARAMETERISED (Phase 5, 05-CONTEXT D-09). ONE builder draws every
+  // animation frame: the silhouette is identical and the pose only offsets the
+  // limbs, widens the mouth or brightens the eyes. Keeping it one function is
+  // what stops the frames drifting apart as separate hand-drawn assets would.
+  //
+  //   idle    — the shipped Phase 4 pose, UNCHANGED (offsets all zero). The
+  //             legacy Sprites.map.enemy key aliases this frame, so Phase 4's
+  //             pixel-exact proofs keep passing byte for byte.
+  //   walk1   — left leg lifted, arms swung forward/back.
+  //   walk2   — the mirror image, so alternating the two reads as a stride.
+  //   attack  — both arms RAISED, mouth widened, eyes on the hotter emissive
+  //             palette entry (the telegraph the attack windup shows).
   // ---------------------------------------------------------------------------
-  Sprites.makeEnemy = function (salt) {
+
+  // Per-pose limb deltas. Every field is a pixel offset applied to the idle
+  // geometry, so idle is exactly the all-zero row and cannot drift.
+  var ENEMY_POSES = {
+    idle:   { legLdy: 0, legRdy: 0, armLdx: 0, armLdy: 0, armRdx: 0, armRdy: 0,
+              armTop: 24, armLen: 19, mouthY: 19, mouthH: 4, hotEyes: false },
+    walk1:  { legLdy: -3, legRdy: 0, armLdx: -1, armLdy: 2, armRdx: 1, armRdy: -2,
+              armTop: 24, armLen: 19, mouthY: 19, mouthH: 4, hotEyes: false },
+    walk2:  { legLdy: 0, legRdy: -3, armLdx: 1, armLdy: -2, armRdx: -1, armRdy: 2,
+              armTop: 24, armLen: 19, mouthY: 19, mouthH: 4, hotEyes: false },
+    attack: { legLdy: 0, legRdy: 0, armLdx: -2, armLdy: 0, armRdx: 2, armRdy: 0,
+              armTop: 15, armLen: 17, mouthY: 18, mouthH: 6, hotEyes: true }
+  };
+
+  Sprites.makeEnemy = function (salt, pose) {
     var W = 64, H = 64;
     var t = makeAsset(W, H);
     var rand = mulberry32(CONFIG.SEED + salt);
     var m = new Uint8Array(W * H);
+    var P = ENEMY_POSES[pose] || ENEMY_POSES.idle;
 
-    var BODY = 1, LIMB = 2, EYE = 3, BONE = 4, MOUTH = 5, TOOTH = 6, RIM = 7;
+    var BODY = 1, LIMB = 2, EYE = 3, BONE = 4, MOUTH = 5, TOOTH = 6, RIM = 7,
+        EYEHOT = 8;
 
-    // Legs and feet.
-    mrect(m, W, H, 21, 44, 8, 16, LIMB);
-    mrect(m, W, H, 35, 44, 8, 16, LIMB);
-    mrect(m, W, H, 19, 60, 12, 4, LIMB);
-    mrect(m, W, H, 33, 60, 12, 4, LIMB);
+    // Legs and feet. legLdy/legRdy lift a leg for the walk cycle.
+    mrect(m, W, H, 21, 44 + P.legLdy, 8, 16, LIMB);
+    mrect(m, W, H, 35, 44 + P.legRdy, 8, 16, LIMB);
+    mrect(m, W, H, 19, 60 + P.legLdy, 12, 4, LIMB);
+    mrect(m, W, H, 33, 60 + P.legRdy, 12, 4, LIMB);
 
-    // Arms with bone claws at the wrists.
-    mrect(m, W, H, 11, 24, 7, 19, LIMB);
-    mrect(m, W, H, 46, 24, 7, 19, LIMB);
-    mrect(m, W, H, 10, 43, 9, 4, BONE);
-    mrect(m, W, H, 45, 43, 9, 4, BONE);
+    // Arms with bone claws at the wrists. armTop/armLen raise and shorten both
+    // arms for the attack pose; armLdx/armRdx swing them for the walk cycle.
+    var armLy = P.armTop + P.armLdy, armRy = P.armTop + P.armRdy;
+    mrect(m, W, H, 11 + P.armLdx, armLy, 7, P.armLen, LIMB);
+    mrect(m, W, H, 46 + P.armRdx, armRy, 7, P.armLen, LIMB);
+    mrect(m, W, H, 10 + P.armLdx, armLy + P.armLen, 9, 4, BONE);
+    mrect(m, W, H, 45 + P.armRdx, armRy + P.armLen, 9, 4, BONE);
 
     // Torso: broad shoulders tapering to the waist.
     for (var y = 21; y < 46; y++) {
@@ -203,13 +249,14 @@ var Sprites = {
       mrect(m, W, H, 39 + i, 9 - i, 2, 2, BONE);
     }
 
-    // Glowing eyes.
-    mrect(m, W, H, 26, 13, 4, 3, EYE);
-    mrect(m, W, H, 34, 13, 4, 3, EYE);
+    // Glowing eyes — the attack pose burns hotter.
+    var eyeId = P.hotEyes ? EYEHOT : EYE;
+    mrect(m, W, H, 26, 13, 4, 3, eyeId);
+    mrect(m, W, H, 34, 13, 4, 3, eyeId);
 
-    // Fanged mouth.
-    mrect(m, W, H, 25, 19, 14, 4, MOUTH);
-    for (var f = 0; f < 7; f++) mrect(m, W, H, 26 + f * 2, 19, 1, 2, TOOTH);
+    // Fanged mouth (widened on the attack pose).
+    mrect(m, W, H, 25, P.mouthY, 14, P.mouthH, MOUTH);
+    for (var f = 0; f < 7; f++) mrect(m, W, H, 26 + f * 2, P.mouthY, 1, 2, TOOTH);
 
     outline(m, W, H, RIM);
 
@@ -220,7 +267,51 @@ var Sprites = {
       4: [214, 204, 176],         // horn / claw bone
       5: [38, 14, 12],            // mouth cavity
       6: [232, 226, 206],         // teeth
-      7: [22, 10, 10]             // silhouette rim
+      7: [22, 10, 10],            // silhouette rim
+      8: [255, 120, 60, 'flat']   // emissive eyes, attack telegraph
+    }, rand);
+
+    return t;
+  };
+
+  // ---------------------------------------------------------------------------
+  // FIREBALL — 24x24 emissive orb: a hot flat-shaded core ringed by a cooler
+  // shell and a deep outer flame, with the standard dark rim. Every material is
+  // 'flat' (opted OUT of the directional light ramp) because a projectile emits
+  // its own light — a key-lit fireball would read as a rock. Small on purpose:
+  // the sprite pass scales by distance, and CONFIG.PROJ_SCALE keeps it compact.
+  // ---------------------------------------------------------------------------
+  Sprites.makeFireball = function (salt) {
+    var W = 24, H = 24;
+    var t = makeAsset(W, H);
+    var rand = mulberry32(CONFIG.SEED + salt);
+    var m = new Uint8Array(W * H);
+
+    var OUTER = 1, SHELL = 2, CORE = 3, SPARK = 4, RIM = 5;
+
+    // Concentric flame shells, outermost first so the inner ones overwrite.
+    mellipse(m, W, H, 12, 12, 9, 9, OUTER);
+    mellipse(m, W, H, 12, 12, 6, 6, SHELL);
+    mellipse(m, W, H, 12, 11, 3, 3, CORE);
+
+    // Four trailing licks so the orb is not a plain circle at any scale.
+    mrect(m, W, H, 11, 1, 2, 3, SHELL);
+    mrect(m, W, H, 11, 20, 2, 3, SHELL);
+    mrect(m, W, H, 1, 11, 3, 2, SHELL);
+    mrect(m, W, H, 20, 11, 3, 2, SHELL);
+
+    // A couple of bright sparks inside the core for a bit of life.
+    mset(m, W, H, 11, 10, SPARK);
+    mset(m, W, H, 13, 12, SPARK);
+
+    outline(m, W, H, RIM);
+
+    colorize(t, m, {
+      1: [186, 44, 16, 'flat'],   // deep outer flame
+      2: [244, 132, 28, 'flat'],  // orange shell
+      3: [255, 226, 140, 'flat'], // hot core
+      4: [255, 255, 236, 'flat'], // sparks
+      5: [58, 12, 6, 'flat']      // rim — dark so it reads against a lit wall
     }, rand);
 
     return t;

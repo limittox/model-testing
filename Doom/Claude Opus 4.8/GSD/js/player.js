@@ -28,6 +28,22 @@
  * then the Y axis resolves against the POST-X-resolution x. A rejected axis does
  * not cancel the other axis's attempt — that independence is what makes the
  * player slide along a wall instead of sticking.
+ *
+ * PHASE 5 — THE SLIDE IS NOW SHARED (05-CONTEXT D-11 "reuse, don't
+ * re-architect"): the D-06 routine is generalized into three RADIUS-PARAMETERISED
+ * helpers — canOccupyXFor / canOccupyYFor / slideMove — that operate on ANY
+ * object carrying {x, y}. js/enemies.js moves every chasing enemy through
+ * Player.slideMove(enemy, dx, dy, CONFIG.ENEMY_RADIUS), so an enemy collides with
+ * walls with the PLAYER'S EXACT semantics rather than a second, drifting
+ * implementation. Player.canOccupyX / canOccupyY / moveBy are thin delegations
+ * that pass Player and Player.RADIUS: the public API and the observed player
+ * behaviour are unchanged (tools/verify-motion.cjs is the proof — every existing
+ * assertion passes unedited).
+ *
+ * slideMove additionally RETURNS THE DISTANCE ACTUALLY TRAVELLED. The enemy chase
+ * steer needs that number: comparing it against the requested step is how a
+ * corner jam is detected (a raw steer alone jams a 0.70-footprint enemy on a
+ * one-cell corridor mouth forever).
  */
 
 var Player = {
@@ -122,46 +138,73 @@ var Player = {
 
   // ===========================================================================
   // PER-AXIS COLLISION (D-06) — leading-edge radius test, X commits before Y.
+  //
+  // THE GENERALIZED FORM (Phase 5). These three helpers hold the ONE copy of the
+  // maths. They take the mover's CURRENT (curX, curY) and its RADIUS explicitly
+  // instead of reading Player, so the player and every enemy share one routine.
   // ===========================================================================
 
-  // Can the player stand at x=nx while on row y? Tests the LEADING EDGE of the
-  // X move (nx offset by +/-RADIUS in the direction of travel) at BOTH corners
-  // of the body on the y axis, so the radius protects the corners as well as the
-  // centre line. A zero-length move is always allowed (the caller skips it).
-  Player.canOccupyX = function (nx, y) {
-    var dx = nx - Player.x;
+  // Can a body of `radius` centred on row curY stand at x=newX? Tests the
+  // LEADING EDGE of the X move (newX offset by +/-radius in the direction of
+  // travel) at BOTH corners of the body on the y axis, so the radius protects
+  // the corners as well as the centre line. A zero-length move is always allowed
+  // (the caller skips it).
+  Player.canOccupyXFor = function (curX, curY, newX, radius) {
+    var dx = newX - curX;
     if (dx === 0) return true;
-    var edge = nx + (dx > 0 ? Player.RADIUS : -Player.RADIUS);
+    var edge = newX + (dx > 0 ? radius : -radius);
     var ex = Math.floor(edge);
-    return !Level.isSolid(ex, Math.floor(y - Player.RADIUS)) &&
-           !Level.isSolid(ex, Math.floor(y + Player.RADIUS));
+    return !Level.isSolid(ex, Math.floor(curY - radius)) &&
+           !Level.isSolid(ex, Math.floor(curY + radius));
   };
 
-  // The mirror image: can the player stand at y=ny while at column x? The x
-  // passed here is the POST-X-RESOLUTION x — the column the player actually
+  // The mirror image: can a body of `radius` at column curX stand at y=newY? The
+  // curX passed here is the POST-X-RESOLUTION x — the column the body actually
   // holds after the X attempt was accepted or rejected — never the pre-move x.
-  Player.canOccupyY = function (x, ny) {
-    var dy = ny - Player.y;
+  Player.canOccupyYFor = function (curX, curY, newY, radius) {
+    var dy = newY - curY;
     if (dy === 0) return true;
-    var edge = ny + (dy > 0 ? Player.RADIUS : -Player.RADIUS);
+    var edge = newY + (dy > 0 ? radius : -radius);
     var ey = Math.floor(edge);
-    return !Level.isSolid(Math.floor(x - Player.RADIUS), ey) &&
-           !Level.isSolid(Math.floor(x + Player.RADIUS), ey);
+    return !Level.isSolid(Math.floor(curX - radius), ey) &&
+           !Level.isSolid(Math.floor(curX + radius), ey);
   };
 
-  // Attempt a world-space move of (dx,dy). RESOLUTION ORDER is load-bearing:
-  // resolve X FIRST and COMMIT it (write Player.x only if accepted), THEN resolve
-  // Y against the committed x. "Independent" means a rejected X does not cancel
-  // the Y attempt and vice versa — it does NOT mean Y is tested against stale x.
-  Player.moveBy = function (dx, dy) {
+  // Move ANY object carrying {x, y} by (dx,dy) with the D-06 semantics.
+  // RESOLUTION ORDER is load-bearing: resolve X FIRST and COMMIT it (write obj.x
+  // only if accepted), THEN resolve Y against the committed x. "Independent"
+  // means a rejected X does not cancel the Y attempt and vice versa — it does NOT
+  // mean Y is tested against stale x.
+  //
+  // RETURNS the distance actually travelled (0 when both axes were rejected).
+  // The enemy chase steer compares that against the requested step to detect a
+  // corner jam; the player ignores it.
+  Player.slideMove = function (obj, dx, dy, radius) {
+    var x0 = obj.x, y0 = obj.y;
     if (dx !== 0) {
-      var nx = Player.x + dx;
-      if (Player.canOccupyX(nx, Player.y)) Player.x = nx;
+      var nx = obj.x + dx;
+      if (Player.canOccupyXFor(obj.x, obj.y, nx, radius)) obj.x = nx;
     }
     if (dy !== 0) {
-      var ny = Player.y + dy;
-      if (Player.canOccupyY(Player.x, ny)) Player.y = ny;
+      var ny = obj.y + dy;
+      if (Player.canOccupyYFor(obj.x, obj.y, ny, radius)) obj.y = ny;
     }
+    var mx = obj.x - x0, my = obj.y - y0;
+    return Math.sqrt(mx * mx + my * my);
+  };
+
+  // --- The unchanged public player API: thin delegations at Player.RADIUS ------
+
+  Player.canOccupyX = function (nx, y) {
+    return Player.canOccupyXFor(Player.x, y, nx, Player.RADIUS);
+  };
+
+  Player.canOccupyY = function (x, ny) {
+    return Player.canOccupyYFor(x, Player.y, ny, Player.RADIUS);
+  };
+
+  Player.moveBy = function (dx, dy) {
+    Player.slideMove(Player, dx, dy, Player.RADIUS);
   };
 
   // ===========================================================================
