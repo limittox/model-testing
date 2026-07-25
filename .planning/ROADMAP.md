@@ -95,11 +95,11 @@ Plans:
   2. Sprites behind walls are hidden and partial walls clip them correctly via the z-buffer, with nearer sprites drawn over farther ones (back-to-front sort).
   3. Sprite transparency is clean — no halo or fringe artifacts around edges.
 
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 
 Plans:
 
-- [ ] 04-01-PLAN.md — Tracer: Entities list from Level.spawns + billboard projection (inverted dir|plane matrix) with distance scaling, back-to-front depth sort, and a first per-column z-buffer occlusion cut; falsifiable sprite harness (ENT-01, ENT-02)
+- [x] 04-01-PLAN.md — Tracer: Entities list from Level.spawns + billboard projection (inverted dir|plane matrix) with distance scaling, back-to-front depth sort, and a first per-column z-buffer occlusion cut; falsifiable sprite harness (ENT-01, ENT-02)
 - [ ] 04-02-PLAN.md — Partial-wall per-column z-buffer clipping + back-to-front sort overlap + clean alpha-tested transparency (no halo) + sprite fog shading (ENT-02, ENT-03)
 
 ### Phase 5: Enemy AI, Weapons & Pickups
@@ -157,6 +157,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 1. Scaffold, Config & Procedural Assets | 2/2 | In Progress|  |
 | 2. Level, Player Movement & Input | 3/3 | In Progress|  |
 | 3. Core Renderer — Walls, Floors & Ceilings | 3/3 | In Progress|  |
-| 4. Sprite Rendering & Entities | 0/2 | Not started | - |
+| 4. Sprite Rendering & Entities | 1/2 | In Progress|  |
 | 5. Enemy AI, Weapons & Pickups | 0/4 | Not started | - |
 | 6. HUD, Audio & Game-State Machine | 0/3 | Not started | - |

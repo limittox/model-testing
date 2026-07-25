@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 03
-current_phase_name: core-renderer-walls-floors-ceilings
-status: verifying
-stopped_at: Completed 03-03-PLAN.md
-last_updated: "2026-07-24T14:34:21.459Z"
-last_activity: 2026-07-24
-last_activity_desc: Phase 03 execution started
+current_phase: 04
+current_phase_name: sprite-rendering-entities
+status: executing
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-07-25T01:48:57.070Z"
+last_activity: 2026-07-25
+last_activity_desc: Phase 04 execution started
 progress:
-  total_phases: 3
+  total_phases: 4
   completed_phases: 3
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 10
+  completed_plans: 9
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-23)
 
 **Core value:** You can open it in a browser and immediately play a fun, recognizably-Doom first-person shooter — move, fight, shoot, manage health/ammo, and win or die.
-**Current focus:** Phase 03 — core-renderer-walls-floors-ceilings
+**Current focus:** Phase 04 — sprite-rendering-entities
 
 ## Current Position
 
-Phase: 03 (core-renderer-walls-floors-ceilings) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
-Last activity: 2026-07-24 — Phase 03 execution started
+Phase: 04 (sprite-rendering-entities) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-07-25 — Phase 04 execution started
 
-Progress: [██████████] 100%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
@@ -66,6 +66,7 @@ Progress: [██████████] 100%
 | Phase 03 P01 | 35min | 2 tasks | 7 files |
 | Phase 03 P02 | 10min | 2 tasks | 2 files |
 | Phase 03 P03 | 15min | 2 tasks | 2 files |
+| Phase 04 P01 | 22min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -99,6 +100,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 03-03: Pass A loops y in [horizon,H) with mirror (H-1-y) and clamps the horizon row (p=1) — guarantees full frame coverage at both even and odd internal height with no parity special-case
 - [Phase ?]: 03-03: floor/ceiling whole-frame coverage is asserted with a distinct seeded sentinel, never a CLEAR_COLOR scan (a shaded texel can coincide with CLEAR_COLOR)
 - [Phase ?]: 03-03: CONFIG.FLOOR_CAST=false fallback shades flat FLOOR/CEIL colors via the same shadeFactor(rowDistance,false) as the textured cast — a real exercised path, not dead code
+- [Phase ?]: Phase 4 sprite tracer: unshaded billboard pass wired via Raycaster.spritePass seam; fog deferred to 04-02
 
 ### Pending Todos
 
@@ -123,6 +125,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-24T14:34:05.067Z
-Stopped at: Completed 03-03-PLAN.md
+Last session: 2026-07-25T01:48:49.138Z
+Stopped at: Completed 04-01-PLAN.md
 Resume file: None
