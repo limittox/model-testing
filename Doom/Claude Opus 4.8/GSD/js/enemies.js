@@ -75,16 +75,25 @@
  * filter where it IS correct — plan 05-02's hitscan target filter, and the
  * re-entry guard inside hurt().
  *
- * REQUIREMENT BOUNDARY (the deferred half, filled INSIDE this phase — the same
- * discipline 04-01 used for its deferred fog, never a permanent simplification):
- * this file owns ENEM-01 (the state machine), ENEM-02 (chase + wall collision)
- * and ENEM-03 (the ranged attack). It does NOT yet implement ENEM-04/ENEM-05 —
- * the chance-based pain reaction, the multi-frame death animation, the corpse
- * and the kill count are delivered by PLAN 05-03 in this same phase. Until then
- * hurt() sets the death state and an enemy in it simply falls through the state
- * switch doing nothing; that fall-through is the documented gap 05-03 replaces
- * with the death-animation branch, and the corpse-state skip predicate above is
- * what leaves it somewhere to run.
+ * ============================================================================
+ * THE 05-01 FUNCTIONALITY GAP IS CLOSED (plan 05-03)
+ * ============================================================================
+ * This file owns ENEM-01 (the state machine), ENEM-02 (chase + wall collision),
+ * ENEM-03 (the ranged attack) and — since plan 05-03 — ENEM-04 (the chance-based
+ * pain reaction, the multi-frame death animation and the corpse) and ENEM-05 (the
+ * kill tally). EVERY LOCKED D-02 STATE IS NOW IMPLEMENTED: idle, chase, attack,
+ * pain, death and corpse each have a real branch, and 05-01's documented
+ * do-nothing fall-through for the death state is gone.
+ *
+ * CORPSE IS THE SINGLE TERMINAL STATE AND THE ONLY STATE THE UPDATE LOOP SKIPS.
+ * Nothing anywhere transitions out of it. The `alive` flag is a TARGETING filter
+ * (plan 05-02's hitscan) and a RE-ENTRY guard (inside hurt) — never an update
+ * skip, for the reason spelled out above.
+ *
+ * THE KILL TALLY LIVES ON Game: Game.kills is incremented by hurt() inside the
+ * one branch that clears `alive`, and Game.totalKills is set by build() from the
+ * adopted enemy count. Phase 6's HUD and victory screen read both; this file only
+ * produces the numbers (drawing them is HUD-01/HUD-02).
  *
  * ALLOCATION: build() and reset() are the ONLY allocation points. Nothing in
  * update / updateProjectiles / spawnProjectile allocates (threat T-05-03), and
@@ -222,6 +231,20 @@ var Enemies = {
     }
 
     Entities._ensureScratch(list.length);
+
+    // THE KILL DENOMINATOR (ENEM-05). Set from the enemies actually ADOPTED, which
+    // IS the enemy marker count because build() adopts exactly one entity per
+    // spawn and never appends a duplicate — so the tally is always out of the real
+    // total and nothing has to walk Level.spawns a second time to re-derive it.
+    //
+    // Zeroing the tally here is not redundant with main.js's boot call: a rebuild
+    // RESURRECTS every enemy at full health, so a kill count carried across it
+    // would be counting enemies that are alive again.
+    if (typeof Game !== 'undefined' && Game) {
+      Game.totalKills = Enemies.list.length;
+      if (typeof Game.resetStats === 'function') Game.resetStats();
+    }
+
     Enemies.built = true;
     return Enemies.list;
   };
@@ -419,6 +442,35 @@ var Enemies = {
           e.state = Enemies.CHASE;
         }
 
+      } else if (e.state === Enemies.DEATH) {
+        // THE DEATH ANIMATION (ENEM-04, 05-03). This branch REPLACES 05-01's
+        // documented do-nothing fall-through, and it is reachable ONLY because the
+        // skip predicate at the top of this loop is the CORPSE state and not the
+        // `alive` flag (see the header). hurt() clears `alive` on the lethal hit,
+        // so an alive-flag skip would mean the enemy this branch is about is
+        // exactly the enemy the loop refuses to update: the frame index could
+        // never advance and the corpse could never be entered.
+        //
+        // The index advances MONOTONICALLY and stops at the end of DEATH_FRAMES,
+        // so the fall plays exactly ONCE and then LATCHES into the terminal corpse
+        // state (threat T-05-18). The while loop is bounded by the frame count, so
+        // even a DT_MAX-sized delta cannot spin it — it just skips frames.
+        e.animTime += dt;
+        while (e.deathFrame < DEATH_FRAMES.length &&
+               e.animTime >= CONFIG.ENEMY_DEATH_FRAME_TIME) {
+          e.animTime -= CONFIG.ENEMY_DEATH_FRAME_TIME;
+          e.deathFrame += 1;
+        }
+        if (e.deathFrame >= DEATH_FRAMES.length) {
+          // THE CORPSE. `active` stays TRUE so the sprite pass keeps drawing it as
+          // a floor decal; `alive` stays FALSE so the hitscan target filter refuses
+          // it; and no transition OUT of this state exists anywhere in this file.
+          e.state = Enemies.CORPSE;
+          e.sprite = Enemies.CORPSE_FRAME;
+        } else {
+          e.sprite = DEATH_FRAMES[e.deathFrame];
+        }
+
       } else if (e.state === Enemies.ATTACK) {
         e.sprite = 'enemyAttack';
         e.windup -= dt;
@@ -432,8 +484,10 @@ var Enemies = {
           e.state = Enemies.CHASE;
         }
       }
-      // Any other state (the death state) falls through doing nothing — the
-      // documented ENEM-04 gap plan 05-03 replaces with the death animation.
+      // EVERY non-corpse state now has a branch — there is no fall-through left.
+      // The corpse is handled by the skip at the top of the loop, which is the
+      // whole of its behaviour: no movement, no sight test, no cooldown, no
+      // attack, while `active` stays true so it keeps rendering (T-05-17).
     }
   };
 
@@ -527,10 +581,22 @@ var Enemies = {
       enemy.alive = false;
       // THE LETHAL BRANCH RETURNS BEFORE THE PAIN ROLL, which is the whole reason
       // pain can never trigger on the killing blow (ENEM-04, threat T-05-19): a
-      // lethal hit goes straight to the death animation. The kill tally is
-      // incremented here in 05-03's Task 2, inside this same branch, so overkill
-      // cannot double-count.
+      // lethal hit goes straight to the death animation.
       enemy.state = Enemies.DEATH;
+      // Start the fall from frame ONE, here rather than in update(), so the sprite
+      // is already correct on the hit frame even if the world is rendered before
+      // the next step.
+      enemy.animTime = 0;
+      enemy.deathFrame = 0;
+      enemy.sprite = DEATH_FRAMES[0];
+      enemy.painTime = 0;    // a stagger in flight is overridden by dying
+      enemy.windup = 0;      // and any telegraphed attack is lost
+      // THE KILL TALLY (ENEM-05) lives INSIDE the same branch that clears the
+      // alive flag, and hurt() returns immediately above for an enemy already not
+      // alive — so overkill, a second shotgun pellet, or any number of repeat hits
+      // cannot inflate it (threat T-05-16). The typeof guard keeps this module
+      // loadable in isolation.
+      if (typeof Game !== 'undefined' && Game) Game.kills += 1;
       return before - enemy.health;
     }
 

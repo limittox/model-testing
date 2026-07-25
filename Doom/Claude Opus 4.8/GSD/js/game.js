@@ -51,6 +51,19 @@ var Game = {
   rafId: 0,       // pending requestAnimationFrame handle
   resync: false,  // when set, the NEXT frame takes dt=0 and skips only the step
 
+  // --- Progression counters (ENEM-05, Phase 5 plan 05-03) ---
+  // kills      — incremented EXACTLY ONCE per enemy death, by Enemies.hurt, inside
+  //              the same branch that clears the enemy's alive flag.
+  // totalKills — the enemy count Enemies.build() ADOPTED from the spawn table, so
+  //              the tally always reads out of the real total.
+  //
+  // They live on Game rather than on Enemies because they are PROGRESSION, not AI:
+  // Phase 6's HUD readout (HUD-01/HUD-02) and its victory condition both read them,
+  // and neither should have to reach into the AI module. Phase 5 produces the
+  // numbers and draws nothing.
+  kills: 0,
+  totalKills: 0,
+
   // --- Seams (defaults; assigned by Plan 03 / Phase 3) ---
   input: null,    // { readIntent(): intent, reset?() }
   view: null,     // { render(): void }  — writes buf32, does NOT present
@@ -169,6 +182,19 @@ var Game = {
       Framebuffer.clear(CONFIG.CLEAR_COLOR);
     }
     Framebuffer.present();
+  };
+
+  // ===========================================================================
+  // RESET STATS (ENEM-05) — zero the kill tally. Called from main.js during boot
+  // alongside Combat.reset(), and again by Enemies.build() (a rebuild resurrects
+  // every enemy, so a carried-over tally would be counting the living).
+  //
+  // totalKills is deliberately NOT touched here: Enemies.build() owns it, because
+  // only the AI knows how many enemies the level actually produced.
+  // ===========================================================================
+  Game.resetStats = function () {
+    Game.kills = 0;
+    return Game;
   };
 
   // ===========================================================================

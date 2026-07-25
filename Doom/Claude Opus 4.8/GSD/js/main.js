@@ -13,7 +13,8 @@
  * so no manual repaint is needed any more.
  *
  * PHASE 5 ADDITIONS: the bare Entities.build() call is replaced by Combat.reset()
- * (seed the player's health/armor/ammo from CONFIG) followed by Enemies.build().
+ * (seed the player's health/armor/ammo from CONFIG), Game.resetStats() (zero the
+ * ENEM-05 kill tally) and then Enemies.build().
  * Enemies.build() calls Entities.build() ITSELF and then ADOPTS the enemy
  * billboards it produced, so calling both here would rebuild the list twice for
  * nothing. Weapons.reset() then seeds the weapon state. Everything else about the
@@ -39,7 +40,11 @@ window.addEventListener('load', function () {
   // atlas). Enemies.build() runs Entities.build() itself and then ADOPTS the
   // enemy billboards it emitted — attaching behaviour to those exact objects
   // rather than appending duplicates — and preallocates the fireball pool.
+  // Game.resetStats() zeroes the ENEM-05 kill tally; Enemies.build() then sets
+  // Game.totalKills from the enemies it adopted, so the tally is out of the real
+  // spawn-derived total from the first frame.
   Combat.reset();
+  Game.resetStats();
   Enemies.build();
 
   // Seed the weapon state: the shared cooldown, the viewmodel timers and bob

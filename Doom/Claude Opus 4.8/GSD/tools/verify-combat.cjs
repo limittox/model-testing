@@ -44,6 +44,9 @@ const Game = s.Game;
 const Entities = s.Entities;
 const Enemies = s.Enemies;
 const Combat = s.Combat;
+const Weapons = s.Weapons;
+const Raycaster = s.Raycaster;
+const Framebuffer = s.Framebuffer;
 const raf = h.raf;
 
 // ---------------------------------------------------------------------------
@@ -1176,6 +1179,309 @@ function freshEnemy(x, y) {
     'killed a second time');
 
   CONFIG.ENEMY_PAIN_CHANCE = saved;
+})();
+
+// ===========================================================================
+// 4. THE DEATH ANIMATION, THE CORPSE AND THE KILL TALLY (ENEM-04/ENEM-05, plan
+//    05-03 Task 2).
+//
+// The death animation is reachable at all ONLY because Enemies.update's skip
+// predicate is the CORPSE STATE and never the `alive` flag: a lethal hit clears
+// `alive`, so an alive-flag skip would refuse to update the very enemy the death
+// branch is about. 4b/4c/4d are the assertions that would fail — silently and
+// with nothing pointing at the cause — if that predicate were ever changed, so
+// 4-0 pins it directly.
+// ===========================================================================
+
+// --- 4-0: the skip predicate itself, pinned ---------------------------------
+(function () {
+  scenario(2.5, 2.5);
+  const e = Enemies.add(6.5, 2.5);
+  e.alive = false;                        // not alive, but NOT a corpse
+  e.state = Enemies.CHASE;
+  const before = distToPlayer(e);
+  for (let i = 0; i < 30; i++) Game.step(FRAME_DT);
+  const movedWhileNotAlive = before - distToPlayer(e);
+
+  const c = Enemies.add(8.5, 2.5);
+  c.state = Enemies.CORPSE;
+  const cx = c.x, cy = c.y;
+  for (let i = 0; i < 30; i++) Game.step(FRAME_DT);
+
+  assert(movedWhileNotAlive > 0 && c.x === cx && c.y === cy,
+    '4-0. THE UPDATE SKIP IS THE CORPSE STATE, NOT THE ALIVE FLAG: an enemy with alive===false ' +
+    'is STILL updated (it closed ' + movedWhileNotAlive.toFixed(3) + ' cells) while a CORPSE is ' +
+    'skipped entirely (byte-identical position) — the death animation below is reachable');
+})();
+
+// --- 4a: the lethal transition, all on one call ----------------------------
+(function () {
+  scenario(2.5, 2.5);
+  const e = freshEnemy(6.5, 2.5);
+  Enemies.hurt(e, CONFIG.ENEMY_HEALTH * 4);
+  assert(e.health === 0 && e.alive === false && e.state === Enemies.DEATH &&
+    e.deathFrame === 0 && e.sprite === Enemies.DEATH_FRAMES[0],
+    '4a. ENEM-04: a lethal hit sets health to EXACTLY 0, clears alive and sets the DEATH state on ' +
+    'the SAME call, with the frame index at 0 and the first death frame already showing');
+})();
+
+// --- 4b: the three death frames play IN ORDER, each held ~DEATH_FRAME_TIME --
+(function () {
+  scenario(2.5, 2.5);
+  const e = freshEnemy(6.5, 2.5);
+  Enemies.hurt(e, CONFIG.ENEMY_HEALTH);
+
+  // Record the sprite every frame and collapse it into the sequence of DISTINCT
+  // consecutive frames, plus how long each was held.
+  const seq = [];
+  const held = [];
+  for (let i = 0; i < 120; i++) {
+    if (seq.length === 0 || seq[seq.length - 1] !== e.sprite) { seq.push(e.sprite); held.push(0); }
+    held[held.length - 1] += 1;
+    Game.step(FRAME_DT);
+  }
+
+  const expected = ['enemyDeath1', 'enemyDeath2', 'enemyDeath3', 'enemyCorpse'];
+  const orderOk = seq.length === expected.length && seq.every((n, i) => n === expected[i]);
+  assert(orderOk,
+    '4b. ENEM-04: the sprite walks the three death frames IN ORDER and ends on the corpse — ' +
+    'observed [' + seq.join(', ') + ']');
+
+  // Each death frame held for approximately CONFIG.ENEMY_DEATH_FRAME_TIME, derived
+  // from CONFIG rather than hardcoded.
+  const expectFrames = CONFIG.ENEMY_DEATH_FRAME_TIME / FRAME_DT;
+  const holdsOk = orderOk && held.slice(0, 3).every((n) => Math.abs(n - expectFrames) <= 1);
+  assert(holdsOk,
+    '4b-ii. each death frame is held for approximately CONFIG.ENEMY_DEATH_FRAME_TIME (' +
+    expectFrames.toFixed(2) + ' frames at 60 fps) — observed holds ' + held.slice(0, 3).join('/'));
+
+  // No repeat and no reverse: the four names are pairwise distinct, so no frame
+  // was revisited anywhere in the run.
+  assert(new Set(seq).size === seq.length,
+    '4b-iii. no frame repeats and none reverses across the whole run — the ' + seq.length +
+    ' observed frames are pairwise distinct (the animation plays exactly ONCE)');
+})();
+
+// --- 4c: the corpse is TERMINAL — 300 further frames change nothing --------
+(function () {
+  scenario(2.5, 2.5);
+  const e = freshEnemy(6.5, 2.5);
+  Enemies.hurt(e, CONFIG.ENEMY_HEALTH);
+  // Run the fall out with a CONFIG-derived budget plus slack.
+  const fallFrames = Math.ceil(
+    Enemies.DEATH_FRAMES.length * CONFIG.ENEMY_DEATH_FRAME_TIME / FRAME_DT) + 2;
+  for (let i = 0; i < fallFrames; i++) Game.step(FRAME_DT);
+
+  assert(e.state === Enemies.CORPSE && e.sprite === 'enemyCorpse',
+    '4c-i. after the sequence (' + fallFrames + ' frames, CONFIG-derived) the state is CORPSE and ' +
+    'the sprite is the corpse frame');
+
+  let stayedCorpse = true;
+  for (let i = 0; i < 300; i++) {
+    Game.step(FRAME_DT);
+    if (e.state !== Enemies.CORPSE || e.sprite !== 'enemyCorpse') stayedCorpse = false;
+  }
+  assert(stayedCorpse && e.deathFrame === Enemies.DEATH_FRAMES.length,
+    '4c. ENEM-04 (T-05-18): 300 FURTHER frames leave it in the corpse state on the corpse frame ' +
+    'with the frame index latched at ' + e.deathFrame + ' — the death animation does NOT loop');
+})();
+
+// --- 4d: a corpse is still RENDERED, with the inactive control -------------
+// The corpse is a floor decal, not a despawn: `active` stays true and the sprite
+// pass keeps drawing it. Measured as a framebuffer DIFF against the same frame
+// with no corpse in the list, so the count is of pixels the CORPSE wrote.
+(function () {
+  scenario(2.5, 4.5, 1, 0);
+  const e = Enemies.add(5.5, 4.5);
+  e.alive = false;
+  e.state = Enemies.CORPSE;
+  e.sprite = 'enemyCorpse';
+
+  assert(Level.lineOfSight(Player.x, Player.y, e.x, e.y) === true && e.active === true,
+    '4d-0. precondition: the corpse stands 3 cells in front of the player in clear sight and its ' +
+    'active flag is still TRUE (a corpse is a decal, not a despawn)');
+
+  // Isolate the measurement: this harness's only pixel proof, so the world list is
+  // narrowed to the corpse alone and the weapon overlay (which draws over the
+  // bottom-centre, exactly where a floor-anchored corpse projects) is lifted for
+  // the duration. Both are restored immediately afterwards; no assertion elsewhere
+  // is affected.
+  const savedList = Entities.list;
+  const savedOverlays = Raycaster.overlayPasses.slice();
+  Raycaster.overlayPasses.length = 0;
+
+  function renderInto(list) {
+    Entities.list = list;
+    Entities._ensureScratch(Math.max(1, list.length));
+    Raycaster.render();
+    return Framebuffer.buf32.slice();
+  }
+  function diffCount(a, b) {
+    let n = 0;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) n++;
+    return n;
+  }
+
+  const bg = renderInto([]);                       // walls/floor only
+  const withCorpse = renderInto([e]);
+  e.active = false;
+  const inactive = renderInto([e]);
+  e.active = true;
+
+  Entities.list = savedList;
+  Entities._ensureScratch(savedList.length);
+  for (const p of savedOverlays) Raycaster.overlayPasses.push(p);
+
+  const drawn = diffCount(bg, withCorpse);
+  const drawnInactive = diffCount(bg, inactive);
+  assert(drawn > 0,
+    '4d. ENEM-04: the sprite pass DRAWS the corpse — ' + drawn + ' framebuffer pixels differ from ' +
+    'the same frame with no corpse in the world');
+  assert(drawnInactive === 0,
+    '4d-ii. CONTROL: with the SAME corpse\'s active flag forced false the frame is byte-identical ' +
+    'to the background (' + drawnInactive + ' pixels) — 4d measured a real draw, and `active` is ' +
+    'genuinely what the sprite pass tests');
+  assert(Raycaster.overlayPasses.length === savedOverlays.length &&
+    Entities.list === savedList,
+    '4d-iii. the overlay passes and the entity list are RESTORED after the pixel measurement');
+})();
+
+// --- 4e: a corpse never moves and never attacks ---------------------------
+(function () {
+  scenario(6.0, 4.5, 1, 0);
+  const e = Enemies.add(5.5, 4.5);       // point-blank, clear sight
+  e.alive = false;
+  e.state = Enemies.CORPSE;
+  e.sprite = 'enemyCorpse';
+  e.cooldown = 0;                        // the attack gate is WIDE OPEN
+  resetSpawnLog();
+
+  assert(distToPlayer(e) < CONFIG.ENEMY_ATTACK_RANGE &&
+    Level.lineOfSight(e.x, e.y, Player.x, Player.y) === true && e.cooldown === 0,
+    '4e-0. precondition: the corpse is at ' + distToPlayer(e).toFixed(2) + ' cells — well inside ' +
+    'ENEMY_ATTACK_RANGE — in clear sight with a fully elapsed cooldown');
+
+  const bx = e.x, by = e.y, bs = e.sprite;
+  for (let i = 0; i < 300; i++) Game.step(FRAME_DT);
+  assert(e.x === bx && e.y === by && e.sprite === bs && e.cooldown === 0 &&
+    spawnLog.length === 0 && Combat.health === CONFIG.PLAYER_START_HEALTH,
+    '4e. ENEM-04 (T-05-17): across 300 frames with the player standing at point-blank range in ' +
+    'clear sight the corpse\'s position is BYTE-IDENTICAL, it spawns ZERO projectiles, and the ' +
+    'player takes no damage');
+})();
+
+// --- 4f: a corpse is NOT TARGETABLE, with a live-enemy control at the SAME
+//         position (05-02's alive-only filter is what does this) --------------
+(function () {
+  scenario(2.5, 4.5, 1, 0);
+  Weapons.reset();
+  const corpse = Enemies.add(5.5, 4.5);
+  corpse.alive = false;
+  corpse.state = Enemies.CORPSE;
+  corpse.sprite = 'enemyCorpse';
+  corpse.health = 0;
+
+  Weapons.fire();
+  const corpseHits = Weapons.lastHitCount;
+  const targetWasCorpse = Weapons.lastTarget === corpse;
+
+  // THE CONTROL, in the same list and at the SAME position: a LIVE enemy on the
+  // identical ray. If the shot connects with it, the miss above was the alive
+  // filter and not a bad aim, a wall, or an out-of-range target.
+  const live = Enemies.add(5.5, 4.5);
+  Weapons.cooldown = 0;
+  Weapons.fire();
+
+  assert(corpseHits === 0 && !targetWasCorpse && Weapons.lastTarget !== corpse &&
+    corpse.health === 0 && corpse.state === Enemies.CORPSE,
+    '4f. ENEM-04 (T-05-17): a shot aimed straight at a corpse hits NOTHING (' + corpseHits +
+    ' hits), Weapons.lastTarget is not the corpse, and the corpse is unchanged');
+  assert(Weapons.lastTarget === live && Weapons.lastHitCount === 1 &&
+    live.health === CONFIG.ENEMY_HEALTH - CONFIG.PISTOL_DAMAGE,
+    '4f-ii. CONTROL: the IDENTICAL shot at a LIVE enemy in the SAME SPOT connects for exactly ' +
+    'PISTOL_DAMAGE (health ' + live.health + ') — the corpse\'s immunity is the alive-flag TARGET ' +
+    'filter, not a broken shot');
+})();
+
+// --- 4g: the tally increments EXACTLY once per death, overkill and all -----
+(function () {
+  scenario(2.5, 2.5);
+  Game.resetStats();
+  assert(Game.kills === 0, '4g-0. precondition: Game.kills starts at 0');
+
+  const e = freshEnemy(6.5, 2.5);
+  Enemies.hurt(e, CONFIG.PISTOL_DAMAGE);          // non-lethal: no kill
+  const afterNonLethal = Game.kills;
+  Enemies.hurt(e, CONFIG.ENEMY_HEALTH);           // lethal
+  const afterKill = Game.kills;
+  for (let i = 0; i < 5; i++) Enemies.hurt(e, CONFIG.ENEMY_HEALTH * 10);
+  const afterOverkill = Game.kills;
+
+  assert(afterNonLethal === 0 && afterKill === 1 && afterOverkill === 1,
+    '4g. ENEM-05 (T-05-16): a non-lethal hit adds nothing, the lethal hit adds exactly 1, and FIVE ' +
+    'further overkill hits leave Game.kills at ' + afterOverkill + ' — the increment lives inside ' +
+    'the one branch that clears the alive flag and hurt() returns early for an enemy already dead');
+
+  // And a shotgun-style multi-pellet blast on a single enemy still counts once.
+  const e2 = freshEnemy(7.5, 2.5);
+  const killsBefore = Game.kills;
+  for (let i = 0; i < CONFIG.SHOTGUN_PELLETS; i++) Enemies.hurt(e2, CONFIG.ENEMY_HEALTH);
+  assert(Game.kills === killsBefore + 1,
+    '4g-ii. ' + CONFIG.SHOTGUN_PELLETS + ' lethal pellets landing on ONE enemy in the same blast ' +
+    'count as exactly ONE kill');
+})();
+
+// --- 4h: the denominator is the spawn-derived enemy count ------------------
+(function () {
+  Enemies.build();
+  const markers = enemyMarkerCount();
+  assert(Game.totalKills === markers && markers > 0,
+    '4h. ENEM-05: after Enemies.build() Game.totalKills (' + Game.totalKills + ') equals the number ' +
+    'of enemy markers in Level.spawns (' + markers + ') — the tally is out of the REAL total');
+  assert(Game.kills === 0,
+    '4h-ii. Game.kills is 0 at build — a rebuild resurrects every enemy, so a carried-over tally ' +
+    'would be counting the living');
+})();
+
+// --- 4i: clearing the level drives kills to totalKills EXACTLY ------------
+(function () {
+  Enemies.reset();
+  Combat.reset();
+  const total = Game.totalKills;
+  assert(total === Enemies.list.length && Game.kills === 0,
+    '4i-0. precondition: ' + total + ' spawn-derived enemies, tally at 0');
+
+  for (const e of Enemies.list) Enemies.hurt(e, CONFIG.ENEMY_HEALTH * 10);
+  assert(Game.kills === total && Game.kills === Game.totalKills,
+    '4i. ENEM-05: killing EVERY enemy in the level drives Game.kills to exactly Game.totalKills (' +
+    Game.kills + '/' + Game.totalKills + ')');
+
+  // Every one of them settles into a corpse, and none of them is targetable.
+  const fallFrames = Math.ceil(
+    Enemies.DEATH_FRAMES.length * CONFIG.ENEMY_DEATH_FRAME_TIME / FRAME_DT) + 2;
+  for (let i = 0; i < fallFrames; i++) Game.step(FRAME_DT);
+  let allCorpses = true;
+  for (const e of Enemies.list) {
+    if (e.state !== Enemies.CORPSE || e.sprite !== 'enemyCorpse' ||
+        e.alive !== false || e.active !== true) allCorpses = false;
+  }
+  assert(allCorpses,
+    '4i-ii. every dead enemy settled into the corpse state on the corpse frame with alive false ' +
+    'and active still TRUE (all ' + Enemies.list.length + ' of them keep rendering as floor decals)');
+})();
+
+// --- 4j: nothing allocates — the entity list is unchanged -----------------
+(function () {
+  Enemies.reset();
+  Combat.reset();
+  const listBefore = Entities.list.length;
+  const poolBefore = Enemies.projectiles.length;
+  for (const e of Enemies.list) Enemies.hurt(e, CONFIG.ENEMY_HEALTH * 10);
+  for (let i = 0; i < 300; i++) Game.step(FRAME_DT);
+  assert(Entities.list.length === listBefore && Enemies.projectiles.length === poolBefore,
+    '4j. T-05-20: after every enemy has died and 300 further frames, Entities.list is UNCHANGED (' +
+    listBefore + ') and the projectile pool never grew (' + poolBefore + ') — the death branch, ' +
+    'the corpse and the pain roll all allocate nothing');
 })();
 
 finish('ALL_COMBAT_CONTRACTS_PASS');
