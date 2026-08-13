@@ -1,0 +1,3 @@
+# Local Claude Code workspace: agent definitions, hooks, GSD state, launch
+# configs and machine-specific settings.
+.claude/
