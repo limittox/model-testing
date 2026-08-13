@@ -1,0 +1,67 @@
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body {
+  width:100%; height:100%; overflow:hidden; background:#0b0d12;
+  font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+  color:#f2ead7; user-select:none; -webkit-user-select:none;
+}
+#stage { position:fixed; inset:0; }
+canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
+#scene { z-index:1; background:#12161f; }
+#hud   { z-index:2; pointer-events:none; }
+
+.hidden { display:none !important; }
+
+/* ---------- boot ---------- */
+#boot, #title {
+  position:absolute; inset:0; z-index:10;
+  display:flex; align-items:center; justify-content:center;
+  background:
+    radial-gradient(ellipse at 50% 30%, #2a3550 0%, #141a26 55%, #080a10 100%);
+}
+#boot::after, #title::after {
+  content:""; position:absolute; inset:0; pointer-events:none;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(0,0,0,.20) 0 2px, rgba(0,0,0,0) 2px 4px);
+  opacity:.5;
+}
+.boot-inner, .title-inner { text-align:center; position:relative; z-index:2; max-width:840px; padding:24px; }
+
+h1 {
+  font-size:clamp(46px, 9vw, 104px); letter-spacing:.16em; font-weight:900;
+  color:#ffd83d; line-height:.95;
+  text-shadow: 0 5px 0 #b4451f, 0 9px 0 #101319, 0 14px 26px rgba(0,0,0,.7);
+  -webkit-text-stroke: 3px #14171f;
+  paint-order: stroke fill;
+}
+.sub {
+  margin-top:12px; letter-spacing:.42em; font-size:13px; text-transform:uppercase;
+  color:#8fc9d8;
+}
+#bootbar { margin:34px auto 12px; width:min(420px, 70vw); height:10px;
+  border:2px solid #14171f; background:#1b2130; border-radius:2px; overflow:hidden; }
+#bootbar i { display:block; height:100%; width:0%; background:linear-gradient(90deg,#ff8a3d,#ffd83d); transition:width .12s linear; }
+#bootmsg { font-size:12px; letter-spacing:.22em; text-transform:uppercase; color:#7f8aa3; }
+
+/* ---------- title ---------- */
+.cols { display:flex; gap:38px; justify-content:center; margin:34px 0 8px; flex-wrap:wrap; text-align:left; }
+.cols > div { min-width:250px; }
+h2 { font-size:12px; letter-spacing:.3em; text-transform:uppercase; color:#ff8a3d; margin-bottom:10px;
+     border-bottom:2px solid rgba(255,138,61,.35); padding-bottom:6px; }
+.cols ul { list-style:none; }
+.cols li { font-size:13.5px; line-height:1.85; color:#cfd7e6; }
+.cols b { color:#ffd83d; font-family:"Consolas", monospace; }
+
+#playbtn {
+  margin-top:26px; padding:14px 40px; font:900 17px/1 "Trebuchet MS", sans-serif;
+  letter-spacing:.2em; color:#141821; background:#ffd83d; border:3px solid #14171f;
+  border-radius:3px; cursor:pointer; box-shadow:0 6px 0 #b4451f, 0 10px 22px rgba(0,0,0,.55);
+  transition:transform .08s ease, box-shadow .08s ease;
+}
+#playbtn:hover { background:#ffe473; }
+#playbtn:active { transform:translateY(5px); box-shadow:0 1px 0 #b4451f; }
+.tiny { margin-top:20px; font-size:10.5px; letter-spacing:.16em; color:#5c6478; text-transform:uppercase; }
+
+/* ---------- error ---------- */
+#oops { position:absolute; inset:0; z-index:40; background:#0b0d12; display:flex;
+        align-items:center; justify-content:center; padding:40px; }
+#oops div { max-width:700px; font:14px/1.7 Consolas, monospace; color:#ff9f7a; white-space:pre-wrap; }

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SALTGRAVE — A Port Verrano Story</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage">
+  <canvas id="scene"></canvas>
+  <canvas id="hud"></canvas>
+
+  <div id="boot">
+    <div class="boot-inner">
+      <h1>SALTGRAVE</h1>
+      <p class="sub">A Port Verrano Story</p>
+      <div id="bootbar"><i></i></div>
+      <p id="bootmsg">warming up the presses…</p>
+    </div>
+  </div>
+
+  <div id="title" class="hidden">
+    <div class="title-inner">
+      <h1>SALTGRAVE</h1>
+      <p class="sub">A Port Verrano Story</p>
+      <div class="cols">
+        <div>
+          <h2>On foot</h2>
+          <ul>
+            <li><b>W A S D</b> move (camera relative)</li>
+            <li><b>Shift</b> sprint</li>
+            <li><b>Mouse</b> aim &nbsp; <b>LMB</b> attack / fire</li>
+            <li><b>Q / E</b> or <b>Wheel</b> cycle weapon</li>
+            <li><b>F</b> enter / steal nearest vehicle</li>
+            <li><b>E</b>&nbsp;… <b>Space</b> talk to a local</li>
+          </ul>
+        </div>
+        <div>
+          <h2>Driving</h2>
+          <ul>
+            <li><b>W / S</b> throttle / brake &amp; reverse</li>
+            <li><b>A / D</b> steer</li>
+            <li><b>Space</b> handbrake</li>
+            <li><b>F</b> get out</li>
+            <li><b>C</b> camera: chase / north-up</li>
+            <li><b>M</b> map &nbsp; <b>P</b> pause &nbsp; <b>H</b> help</li>
+          </ul>
+        </div>
+      </div>
+      <button id="playbtn">ENTER THE DISTRICT</button>
+      <p class="tiny">Original characters, city, vehicles and story. No third-party assets.</p>
+    </div>
+  </div>
+
+  <div id="oops" class="hidden"><div></div></div>
+</div>
+
+<script src="js/math.js"></script>
+<script src="js/gl.js"></script>
+<script src="js/art.js"></script>
+<script src="js/mesh.js"></script>
+<script src="js/models.js"></script>
+<script src="js/city.js"></script>
+<script src="js/collide.js"></script>
+<script src="js/camera.js"></script>
+<script src="js/input.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/renderer.js"></script>
+<script src="js/vehicle.js"></script>
+<script src="js/player.js"></script>
+<script src="js/ped.js"></script>
+<script src="js/traffic.js"></script>
+<script src="js/combat.js"></script>
+<script src="js/police.js"></script>
+<script src="js/missions.js"></script>
+<script src="js/hud.js"></script>
+<script src="js/game.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
