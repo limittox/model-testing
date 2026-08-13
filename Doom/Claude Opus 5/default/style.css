@@ -1,0 +1,35 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #000;
+  overflow: hidden;
+  color: #c8b48c;
+  font-family: "Courier New", monospace;
+}
+
+#stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #050505;
+}
+
+#screen {
+  display: block;
+  /* Nearest-neighbour upscale of the low internal resolution: the compositor
+     does the scaling for free, which is both the retro look and the perf win. */
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  image-rendering: -moz-crisp-edges;
+  -ms-interpolation-mode: nearest-neighbor;
+  background: #000;
+  cursor: none;
+  /* width/height are set from JS so the upscale stays at an integer factor. */
+}
+
+#screen.unlocked {
+  cursor: pointer;
+}
